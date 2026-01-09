@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { parseAgentMd, parseAgentMdFromString } from "../../../src/agent/parse-agent-md";
+import { parseAgentMd, parseAgentMdFromString } from "../../../src/agent/parse-agent-md.js";
 
 describe("parseAgentMdFromString()", () => {
   it("applies defaults and extracts core sections without frontmatter", async () => {

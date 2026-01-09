@@ -1,8 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import fg from "fast-glob";
-import { parseAgentMd } from "./agent/parse-agent-md";
+import { parseAgentMd } from "./agent/parse-agent-md.js";
 
 type ParsedArgs = {
   command: "agent-parse" | "help" | "unknown";
@@ -133,7 +134,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   return await runAgentParse(args.globs, { stdout: args.stdout });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+function isEntrypoint(): boolean {
+  const invokedPath = process.argv[1];
+  if (!invokedPath) return false;
+  const invokedAbs = path.resolve(process.cwd(), invokedPath);
+  const selfAbs = path.resolve(fileURLToPath(import.meta.url));
+  return invokedAbs === selfAbs;
+}
+
+if (isEntrypoint()) {
   main()
     .then((code) => process.exit(code))
     .catch((err) => {

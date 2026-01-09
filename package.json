@@ -4,10 +4,15 @@
   "private": true,
   "description": "",
   "license": "UNLICENSED",
+  "type": "module",
   "engines": {
     "node": ">=20"
   },
+  "bin": {
+    "tempybot": "./dist/cli.js"
+  },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "vitest run tests/unit --exclude tests/unit/integration",
