@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { CliSession, userSleep, userTypeDelay } from "../../../test-utils";
+import { CliSession, userSleep, userTypeDelay } from "../../../test-utils.js";
 
 test("cli scenario (integration): prints hello", async () => {
   // In a real project this scenario would require secrets / real external services.

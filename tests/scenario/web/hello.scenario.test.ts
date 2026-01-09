@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { startWebSession, userSleep } from "../../test-utils";
+import { startWebSession, userSleep } from "../../test-utils.js";
 
 test("web scenario: sees hello world", async () => {
   const web = await startWebSession();

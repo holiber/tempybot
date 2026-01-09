@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { startServer } from "../../src/server";
+import { startServer } from "../../src/server.js";
 
 test.describe("hello page (e2e integration) @integration", () => {
   let server: Awaited<ReturnType<typeof startServer>>;

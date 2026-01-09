@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { CliSession, userSleep, userTypeDelay } from "../../test-utils";
+import { CliSession, userSleep, userTypeDelay } from "../../test-utils.js";
 
 test("cli scenario: prints hello", async () => {
   const cli = new CliSession(process.execPath, ["-e", "console.log('Hello, world!')"], process.cwd());

@@ -6,8 +6,8 @@ import remarkFrontmatter from "remark-frontmatter";
 import { toString } from "mdast-util-to-string";
 import YAML from "yaml";
 import type { Root, Content, Heading, Paragraph } from "mdast";
-import type { AgentCommand, AgentDefinition, AgentStatus } from "./types";
-import { AGENT_DEFINITION_DEFAULTS } from "./types";
+import type { AgentCommand, AgentDefinition, AgentStatus } from "./types.js";
+import { AGENT_DEFINITION_DEFAULTS } from "./types.js";
 
 type Frontmatter = Record<string, unknown>;
 
