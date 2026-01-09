@@ -2,6 +2,11 @@
 
 Minimal repo scaffold with unit, e2e, and scenario tests.
 
+## GitHub Pages
+
+- **Project Pages**: [holiber.github.io/tempybot](https://holiber.github.io/tempybot/)
+- **Scenario videos**: [holiber.github.io/tempybot/scenarios](https://holiber.github.io/tempybot/scenarios/)
+
 ## Commands
 
 - `npm test`: unit + e2e
