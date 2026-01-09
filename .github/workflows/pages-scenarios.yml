@@ -1,0 +1,243 @@
+name: pages (userlike scenarios -> /scenarios)
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-scenarios
+  cancel-in-progress: true
+
+jobs:
+  build_and_deploy:
+    name: build scenarios page
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify GitHub Pages is enabled
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          API="https://api.github.com/repos/${GITHUB_REPOSITORY}/pages"
+          status="$(curl -sS -o /tmp/pages.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$API" || true)"
+
+          if [ "$status" = "404" ]; then
+            echo "::error::GitHub Pages is not enabled for this repository. Enable it in Settings -> Pages and set Source to 'GitHub Actions'."
+            exit 1
+          fi
+
+          if [ "$status" != "200" ]; then
+            echo "::error::Failed to query GitHub Pages status (HTTP $status). Response:"
+            cat /tmp/pages.json || true
+            exit 1
+          fi
+
+          echo "GitHub Pages is enabled."
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright (with deps)
+        run: npx playwright install --with-deps
+
+      - name: Install asciinema + ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y asciinema ffmpeg
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install agg
+        run: cargo install agg
+
+      - name: Run all scenario tests in userlike mode
+        env:
+          SCENARIO_MODE: userlike
+        run: npm run test:scenario:userlike
+
+      - name: Build GH Pages content (/scenarios)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SITE_DIR="docs/generated/gh-pages"
+          SCENARIOS_DIR="$SITE_DIR/scenarios"
+
+          rm -rf "$SITE_DIR"
+          mkdir -p "$SCENARIOS_DIR/videos"
+
+          if [ -d "artifacts/user-style-e2e" ]; then
+            cp -R "artifacts/user-style-e2e" "$SCENARIOS_DIR/videos/"
+          fi
+
+          cat > "$SITE_DIR/index.html" <<'HTML'
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <title>Project Pages</title>
+              <style>
+                body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding: 24px; }
+                a { font-weight: 600; }
+                .meta { color: #666; margin-top: 8px; }
+              </style>
+            </head>
+            <body>
+              <h1>Project Pages</h1>
+              <p><a href="./scenarios/">Scenario videos</a></p>
+              <p class="meta">User-like scenario test videos generated from merges to <code>main</code>.</p>
+            </body>
+          </html>
+          HTML
+
+          cat > "$SCENARIOS_DIR/index.html" <<'HTML'
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <title>Scenarios — Userlike Videos</title>
+              <style>
+                body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding: 24px; }
+                h1 { margin: 0 0 8px; }
+                .meta { color: #666; margin-bottom: 24px; }
+                .section { margin-top: 24px; }
+                .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin: 12px 0; }
+                video { max-width: 100%; height: auto; border-radius: 12px; }
+                code { background: #f6f8fa; padding: 2px 6px; border-radius: 6px; }
+              </style>
+            </head>
+            <body>
+              <h1>Scenarios — Userlike Videos</h1>
+              <div class="meta">This page lists user-like scenario videos generated from the latest merge to <code>main</code>.</div>
+
+              <div class="section">
+                <h2>Web scenarios</h2>
+                <div id="web"></div>
+              </div>
+
+              <div class="section">
+                <h2>CLI scenarios</h2>
+                <div id="cli"></div>
+              </div>
+
+              <script>
+                async function main() {
+                  const res = await fetch("./manifest.json", { cache: "no-store" });
+                  if (!res.ok) {
+                    document.body.insertAdjacentHTML("beforeend", "<p><b>No manifest.json found.</b> Videos may be missing.</p>");
+                    return;
+                  }
+                  const manifest = await res.json();
+                  const webEl = document.getElementById("web");
+                  const cliEl = document.getElementById("cli");
+
+                  function addCard(root, title, src, type) {
+                    const div = document.createElement("div");
+                    div.className = "card";
+                    div.innerHTML = `
+                      <div style="font-weight:600;margin-bottom:8px;">${title}</div>
+                      <video controls preload="metadata">
+                        <source src="${src}" type="${type}">
+                      </video>
+                      <div style="margin-top:8px;color:#666;font-size:12px;"><code>${src}</code></div>
+                    `;
+                    root.appendChild(div);
+                  }
+
+                  for (const item of manifest.web) addCard(webEl, item.name, item.path, "video/webm");
+                  for (const item of manifest.cli) addCard(cliEl, item.name, item.path, "video/mp4");
+
+                  if (!manifest.web.length) webEl.innerHTML = "<p>No web videos found.</p>";
+                  if (!manifest.cli.length) cliEl.innerHTML = "<p>No CLI videos found.</p>";
+                }
+                main().catch(err => {
+                  document.body.insertAdjacentHTML("beforeend", "<pre>" + String(err) + "</pre>");
+                });
+              </script>
+            </body>
+          </html>
+          HTML
+
+          node - <<'NODE'
+          const fs = require("fs");
+          const path = require("path");
+
+          const scenariosDir = path.resolve("docs/generated/gh-pages/scenarios");
+          const videosRoot = path.join(scenariosDir, "videos", "user-style-e2e");
+
+          function walk(dir) {
+            if (!fs.existsSync(dir)) return [];
+            const out = [];
+            for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+              const p = path.join(dir, ent.name);
+              if (ent.isDirectory()) out.push(...walk(p));
+              else out.push(p);
+            }
+            return out;
+          }
+
+          function rel(p) {
+            return path.relative(scenariosDir, p).split(path.sep).join("/");
+          }
+
+          function scenarioNameFromPath(p) {
+            // videos/user-style-e2e/{web|cli}/<scenario>/<file>
+            const parts = p.split(path.sep);
+            const idx = parts.lastIndexOf("web") !== -1 ? parts.lastIndexOf("web") : parts.lastIndexOf("cli");
+            return idx !== -1 && parts[idx + 1] ? parts[idx + 1] : path.basename(path.dirname(p));
+          }
+
+          const webDir = path.join(videosRoot, "web");
+          const cliDir = path.join(videosRoot, "cli");
+
+          const webFiles = walk(webDir).filter((f) => f.endsWith(".webm"));
+          const cliFiles = walk(cliDir).filter((f) => f.endsWith(".mp4"));
+
+          const manifest = {
+            web: webFiles.map((f) => ({ name: scenarioNameFromPath(f), path: rel(f) })),
+            cli: cliFiles.map((f) => ({ name: scenarioNameFromPath(f), path: rel(f) })),
+            generatedAt: new Date().toISOString(),
+          };
+
+          fs.writeFileSync(path.join(scenariosDir, "manifest.json"), JSON.stringify(manifest, null, 2));
+          console.log("manifest.json created:", manifest);
+          NODE
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/generated/gh-pages
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
