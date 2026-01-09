@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { parseAgentMd } from "./agent/parse-agent-md.js";
 
 type ParsedArgs = {
-  command: "agent-parse" | "help" | "unknown";
+  command: "parse" | "help" | "unknown";
   inputPath?: string;
   outPath?: string;
   help: boolean;
@@ -13,14 +13,14 @@ type ParsedArgs = {
 
 function printHelp(): void {
   const text = `
-tempybot agent parse <file.agent.md> [--out <file.json>]
+tempybot parse <file.agent.md> [--out <file.json>]
 
 Parses a single .agent.md file and prints formatted JSON to stdout.
 If --out is provided, it also writes the JSON to that path.
 
 Examples:
-  tempybot agent parse "./docs/agent-examples/python-data-cleaner.agent.md"
-  tempybot agent parse "./docs/agent-examples/python-data-cleaner.agent.md" --out "./python-data-cleaner.agent.json"
+  tempybot parse "./docs/agent-examples/python-data-cleaner.agent.md"
+  tempybot parse "./docs/agent-examples/python-data-cleaner.agent.md" --out "./python-data-cleaner.agent.json"
 `.trim();
   // eslint-disable-next-line no-console
   console.log(text);
@@ -46,9 +46,9 @@ function parseArgs(argv: string[]): ParsedArgs {
     return { command: "help", help: true };
   }
 
-  if (positional[0] === "agent" && positional[1] === "parse") {
-    const inputPath = positional[2];
-    return { command: "agent-parse", inputPath, outPath, help };
+  if (positional[0] === "parse") {
+    const inputPath = positional[1];
+    return { command: "parse", inputPath, outPath, help };
   }
 
   if (positional[0] === "help") {
@@ -98,15 +98,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     return 0;
   }
 
-  if (args.command !== "agent-parse") {
+  if (args.command !== "parse") {
     // eslint-disable-next-line no-console
-    console.error(`Unknown command. See: tempybot agent parse --help`);
+    console.error(`Unknown command. See: tempybot parse --help`);
     return 2;
   }
 
   if (!args.inputPath) {
     // eslint-disable-next-line no-console
-    console.error(`Missing input file path. See: tempybot agent parse --help`);
+    console.error(`Missing input file path. See: tempybot parse --help`);
     return 2;
   }
 

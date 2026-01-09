@@ -29,13 +29,13 @@ console.log(definition);
 ### CLI: parse a file and print JSON to stdout
 
 ```bash
-tempybot agent parse "./docs/agent-examples/python-data-cleaner.agent.md"
+tempybot parse "./docs/agent-examples/python-data-cleaner.agent.md"
 ```
 
 ### CLI: also write JSON to a file
 
 ```bash
-tempybot agent parse "./docs/agent-examples/python-data-cleaner.agent.md" --out "./python-data-cleaner.agent.json"
+tempybot parse "./docs/agent-examples/python-data-cleaner.agent.md" --out "./python-data-cleaner.agent.json"
 ```
 
 If parsing fails, the CLI prints the reason to stderr and exits with a non-zero code.

@@ -8,7 +8,7 @@ async function makeTempDir(): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), "tempybot-cli-"));
 }
 
-describe("cli: tempybot agent parse", () => {
+describe("cli: tempybot parse", () => {
   it("prints formatted JSON to stdout", async () => {
     const dir = await makeTempDir();
     const file = path.join(dir, "one.agent.md");
@@ -19,7 +19,7 @@ describe("cli: tempybot agent parse", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     try {
-      const code = await main(["agent", "parse", file]);
+      const code = await main(["parse", file]);
       expect(code).toBe(0);
       expect(errSpy).not.toHaveBeenCalled();
       expect(logSpy).toHaveBeenCalledTimes(1);
@@ -45,7 +45,7 @@ describe("cli: tempybot agent parse", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     try {
-      const code = await main(["agent", "parse", file, "--out", out]);
+      const code = await main(["parse", file, "--out", out]);
       expect(code).toBe(0);
       expect(errSpy).not.toHaveBeenCalled();
       expect(logSpy).toHaveBeenCalledTimes(1);
@@ -72,7 +72,7 @@ describe("cli: tempybot agent parse", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     try {
-      const code = await main(["agent", "parse"]);
+      const code = await main(["parse"]);
       expect(code).toBe(2);
       expect(logSpy).not.toHaveBeenCalled();
       expect(errSpy).toHaveBeenCalled();
@@ -95,7 +95,7 @@ describe("cli: tempybot agent parse", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     try {
-      const code = await main(["agent", "parse", file]);
+      const code = await main(["parse", file]);
       expect(code).toBe(1);
       expect(logSpy).not.toHaveBeenCalled();
       expect(errSpy).toHaveBeenCalled();
