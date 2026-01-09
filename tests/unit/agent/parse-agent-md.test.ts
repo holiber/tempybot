@@ -27,6 +27,59 @@ describe("parseAgentMdFromString()", () => {
     expect(parsed.toolsSource).toContain("return tools;");
   });
 
+  it("extracts avatar from a # Avatar section (first image)", () => {
+    const raw = `
+# Title
+Desc.
+
+# Avatar
+![my avatar](https://example.com/avatar.png)
+
+![ignored](https://example.com/second.png)
+`.trim();
+    const parsed = parseAgentMdFromString(raw);
+    expect(parsed.avatar).toBe("https://example.com/avatar.png");
+  });
+
+  it("throws on conflicting avatar between YAML frontmatter and # Avatar section", () => {
+    const raw = `---
+avatar: https://example.com/a.png
+---
+
+# Title
+
+# Avatar
+![x](https://example.com/b.png)
+`;
+    expect(() => parseAgentMdFromString(raw)).toThrow(/Conflicting 'avatar'/);
+  });
+
+  it("parses and validates abilities (array shorthand = allow list, normalized to lowercase)", () => {
+    const raw = `---
+abilities:
+  - FS
+  - sh:git
+  - Tool
+---
+
+# Title
+`;
+    const parsed = parseAgentMdFromString(raw);
+    expect(parsed.abilities).toEqual({ allow: ["fs", "sh:git", "tool"] });
+  });
+
+  it("parses and validates abilities (allow/deny) and throws on overlap", () => {
+    const raw = `---
+abilities:
+  allow: [fs, sh:git]
+  deny: [sh:git]
+---
+
+# Title
+`;
+    expect(() => parseAgentMdFromString(raw)).toThrow(/allow\/deny overlap/i);
+  });
+
   it("parses YAML frontmatter case-insensitively and prefers it over fallbacks", async () => {
     const raw = await fs.readFile(new URL("./fixtures/frontmatter-case.agent.md", import.meta.url), "utf8");
     const parsed = parseAgentMdFromString(raw);

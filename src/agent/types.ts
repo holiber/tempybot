@@ -1,5 +1,22 @@
 export type AgentStatus = "active" | "deprecated" | "disabled";
 
+export type AgentAbilities = {
+  /**
+   * Allowed abilities. Values are case-insensitive and normalized to lowercase.
+   *
+   * Supported base abilities: fs, network, sh, tool, mcp, browser, env
+   * Supported scoped abilities: sh:<command>
+   */
+  allow?: string[];
+  /**
+   * Denied abilities. Values are case-insensitive and normalized to lowercase.
+   *
+   * If both allow and deny are present, any overlap is an error and deny wins at runtime.
+   */
+  deny?: string[];
+  [k: string]: unknown;
+};
+
 export type AgentRecommended = {
   models?: string[];
   capabilities?: string[];
@@ -23,20 +40,29 @@ export type AgentInlineCommand = {
 export type AgentCommand = string | AgentInlineCommand;
 
 /**
- * Minimal, deterministic parse output for PR1 (Issue #3).
+ * Deterministic parse output for `.agent.md` files.
  *
  * Notes:
- * - Validation/conflict detection is intentionally deferred to PR2/PR3.
- * - `toolsSource` is raw Markdown content under the `## Tools` heading.
+ * - The loader performs strict validation / conflict detection for known fields.
+ * - `toolsSource` is raw Markdown content under the `## Tools` heading (execution is runtime responsibility).
  */
 export type AgentDefinition = {
   version: string;
   icon: string;
   title: string;
   description: string;
+  /**
+   * Optional avatar image URL/path. May be derived from a `# Avatar` section (first image)
+   * or from YAML metadata (avatar).
+   */
+  avatar?: string;
   status: AgentStatus;
   templateEngine: string;
   input: string;
+  /**
+   * Optional runtime extension. When present, it is validated by the loader.
+   */
+  abilities?: AgentAbilities;
   recommended: AgentRecommended;
   required: AgentRequired;
   commands: AgentCommand[];
@@ -52,6 +78,7 @@ export const AGENT_DEFINITION_DEFAULTS: Pick<
   | "status"
   | "templateEngine"
   | "input"
+  | "abilities"
   | "recommended"
   | "required"
   | "commands"
@@ -63,6 +90,7 @@ export const AGENT_DEFINITION_DEFAULTS: Pick<
   status: "active",
   templateEngine: "hbs",
   input: "",
+  abilities: undefined,
   recommended: {},
   required: {},
   commands: [],
