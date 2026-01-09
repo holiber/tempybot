@@ -1,0 +1,62 @@
+[
+  {
+    "output": "docs/generated/agent-examples/codebase-migration-planner.json",
+    "source": "docs/agent-examples/codebase-migration-planner.agent.md",
+    "status": "active",
+    "title": "Codebase Migration Planner"
+  },
+  {
+    "output": "docs/generated/agent-examples/customer-support-triage.json",
+    "source": "docs/agent-examples/customer-support-triage.agent.md",
+    "status": "active",
+    "title": "Customer Support Triage Agent"
+  },
+  {
+    "output": "docs/generated/agent-examples/etl-pipeline-debugger.json",
+    "source": "docs/agent-examples/etl-pipeline-debugger.agent.md",
+    "status": "active",
+    "title": "ETL Pipeline Debugger"
+  },
+  {
+    "output": "docs/generated/agent-examples/kubernetes-incident-responder.json",
+    "source": "docs/agent-examples/kubernetes-incident-responder.agent.md",
+    "status": "active",
+    "title": "Kubernetes Incident Responder"
+  },
+  {
+    "output": "docs/generated/agent-examples/product-requirements-writer.json",
+    "source": "docs/agent-examples/product-requirements-writer.agent.md",
+    "status": "active",
+    "title": "Product Requirements Writer"
+  },
+  {
+    "output": "docs/generated/agent-examples/python-data-cleaner.json",
+    "source": "docs/agent-examples/python-data-cleaner.agent.md",
+    "status": "active",
+    "title": "Python Data Cleaner"
+  },
+  {
+    "output": "docs/generated/agent-examples/release-manager.json",
+    "source": "docs/agent-examples/release-manager.agent.md",
+    "status": "active",
+    "title": "Release Manager Agent"
+  },
+  {
+    "output": "docs/generated/agent-examples/security-dependency-auditor.json",
+    "source": "docs/agent-examples/security-dependency-auditor.agent.md",
+    "status": "active",
+    "title": "Security Dependency Auditor"
+  },
+  {
+    "output": "docs/generated/agent-examples/sql-performance-tuner.json",
+    "source": "docs/agent-examples/sql-performance-tuner.agent.md",
+    "status": "active",
+    "title": "SQL Performance Tuner"
+  },
+  {
+    "output": "docs/generated/agent-examples/terraform-pr-reviewer.json",
+    "source": "docs/agent-examples/terraform-pr-reviewer.agent.md",
+    "status": "active",
+    "title": "Terraform PR Reviewer"
+  }
+]
