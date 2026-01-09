@@ -6,7 +6,7 @@ import remarkFrontmatter from "remark-frontmatter";
 import { toString } from "mdast-util-to-string";
 import YAML from "yaml";
 import type { Root, Content, Heading, Paragraph } from "mdast";
-import type { AgentCommand, AgentDefinition, AgentStatus } from "./types.js";
+import type { AgentAbilities, AgentCommand, AgentDefinition, AgentStatus } from "./types.js";
 import { AGENT_DEFINITION_DEFAULTS } from "./types.js";
 
 type Frontmatter = Record<string, unknown>;
@@ -444,6 +444,90 @@ function getCommandsStrict(v: unknown): AgentCommand[] | undefined {
   return out;
 }
 
+function normalizeAbility(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
+function validateAbilitiesList(kind: "allow" | "deny", v: unknown): string[] | undefined {
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v)) {
+    throw new Error(`Invalid frontmatter 'abilities.${kind}': expected an array of strings.`);
+  }
+  if (v.length === 0) {
+    throw new Error(`Invalid frontmatter 'abilities.${kind}': must not be an empty array (omit it or provide entries).`);
+  }
+
+  const allowedBase = new Set(["fs", "network", "sh", "tool", "mcp", "browser", "env"]);
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  for (let i = 0; i < v.length; i++) {
+    const item = v[i];
+    if (typeof item !== "string" || item.trim().length === 0) {
+      throw new Error(`Invalid frontmatter 'abilities.${kind}[${i}]': expected a non-empty string.`);
+    }
+    const a = normalizeAbility(item);
+
+    if (a.startsWith("sh:")) {
+      const cmd = a.slice("sh:".length).trim();
+      if (!cmd) {
+        throw new Error(
+          `Invalid frontmatter 'abilities.${kind}[${i}]': scoped ability must be in the form 'sh:<command>'.`,
+        );
+      }
+      if (/\s/.test(cmd)) {
+        throw new Error(
+          `Invalid frontmatter 'abilities.${kind}[${i}]': scoped command must not contain whitespace (got '${item}').`,
+        );
+      }
+    } else if (!allowedBase.has(a)) {
+      throw new Error(
+        `Invalid frontmatter 'abilities.${kind}[${i}]': unknown ability '${item}'. ` +
+          `Allowed: ${Array.from(allowedBase).join(", ")} (and scoped 'sh:<command>').`,
+      );
+    }
+
+    if (!seen.has(a)) {
+      seen.add(a);
+      out.push(a);
+    }
+  }
+
+  return out;
+}
+
+function getAbilitiesStrict(v: unknown): AgentAbilities | undefined {
+  if (v === undefined) return undefined;
+
+  // Accept a shorthand list as "allow".
+  if (Array.isArray(v)) {
+    const allow = validateAbilitiesList("allow", v) ?? undefined;
+    return allow ? { allow } : undefined;
+  }
+
+  if (!isPlainObject(v)) {
+    throw new Error(`Invalid frontmatter 'abilities': expected an object or an array of strings.`);
+  }
+
+  const allow = validateAbilitiesList("allow", (v as Record<string, unknown>).allow);
+  const deny = validateAbilitiesList("deny", (v as Record<string, unknown>).deny);
+
+  if (!allow && !deny) {
+    throw new Error(`Invalid frontmatter 'abilities': must include 'allow' and/or 'deny'.`);
+  }
+
+  if (allow && deny) {
+    const overlap = allow.filter((a) => deny.includes(a));
+    if (overlap.length) {
+      throw new Error(
+        `Invalid frontmatter 'abilities': allow/deny overlap is not allowed (${overlap.join(", ")}).`,
+      );
+    }
+  }
+
+  return { allow: allow ?? undefined, deny: deny ?? undefined };
+}
+
 type SectionName = "system" | "rules" | "tools";
 
 function normalizeHeadingText(s: string): string {
@@ -533,8 +617,51 @@ function extractTitleAndDescriptionFallbacks(tree: Root): { title?: string; desc
   return { title: title || undefined, description };
 }
 
+function extractAvatarFallback(tree: Root): string | undefined {
+  const rootChildren = Array.isArray(tree.children) ? tree.children : [];
+  const avatarH1Index = rootChildren.findIndex(
+    (n) => isHeading(n) && (n as Heading).depth === 1 && normalizeHeadingText(toString(n as Heading)) === "avatar",
+  );
+  if (avatarH1Index === -1) return undefined;
+
+  // Search until the next H1 (or end of doc) and return the first image URL found.
+  const endIdx = (() => {
+    for (let i = avatarH1Index + 1; i < rootChildren.length; i++) {
+      const n = rootChildren[i];
+      if (isHeading(n) && (n as Heading).depth === 1) return i;
+    }
+    return rootChildren.length;
+  })();
+
+  function findFirstImageUrl(node: unknown): string | undefined {
+    if (!node || typeof node !== "object") return undefined;
+    const anyNode = node as { type?: unknown; url?: unknown; children?: unknown };
+
+    if (anyNode.type === "image" && typeof anyNode.url === "string" && anyNode.url.trim()) {
+      return anyNode.url.trim();
+    }
+
+    const children = (anyNode.children as unknown) ?? undefined;
+    if (Array.isArray(children)) {
+      for (const ch of children) {
+        const found = findFirstImageUrl(ch);
+        if (found) return found;
+      }
+    }
+
+    return undefined;
+  }
+
+  for (let i = avatarH1Index + 1; i < endIdx; i++) {
+    const found = findFirstImageUrl(rootChildren[i]);
+    if (found) return found;
+  }
+
+  return undefined;
+}
+
 function assertNoFrontmatterVsHeadingConflict(opts: {
-  key: "title" | "description" | "system" | "rules";
+  key: "title" | "description" | "avatar" | "system" | "rules";
   frontmatter: string | undefined;
   headingDerived: string | undefined;
 }): void {
@@ -563,17 +690,20 @@ export function parseAgentMdFromString(raw: string): AgentDefinition {
   const tree = unified().use(remarkParse).use(remarkFrontmatter, ["yaml"]).parse(parsed.content) as Root;
 
   const { title: titleFallback, description: descriptionFallback } = extractTitleAndDescriptionFallbacks(tree);
+  const avatarFallback = extractAvatarFallback(tree);
   const sections = extractNamedSections(parsed.content, tree);
 
   const fmVersion = getStringStrict({ key: "version", v: fm.version });
   const fmIcon = getStringStrict({ key: "icon", v: fm.icon });
   const fmTitle = getStringStrict({ key: "title", v: fm.title });
   const fmDescription = getStringStrict({ key: "description", v: fm.description, allowEmpty: true });
+  const fmAvatar = getStringStrict({ key: "avatar", v: fm.avatar });
   const fmSystem = getStringStrict({ key: "system", v: fm.system, allowEmpty: true });
   const fmRules = getStringStrict({ key: "rules", v: fm.rules, allowEmpty: true });
   const fmTemplateEngine = getStringStrict({ key: "templateengine", v: fm.templateengine, allowEmpty: true });
   const fmInput = getStringStrict({ key: "input", v: fm.input, allowEmpty: true });
   const fmStatus = getStatusStrict(fm.status);
+  const fmAbilities = getAbilitiesStrict(fm.abilities);
 
   assertNoFrontmatterVsHeadingConflict({ key: "title", frontmatter: fmTitle, headingDerived: titleFallback });
   assertNoFrontmatterVsHeadingConflict({
@@ -581,6 +711,7 @@ export function parseAgentMdFromString(raw: string): AgentDefinition {
     frontmatter: fmDescription,
     headingDerived: descriptionFallback,
   });
+  assertNoFrontmatterVsHeadingConflict({ key: "avatar", frontmatter: fmAvatar, headingDerived: avatarFallback });
   // Only compare frontmatter vs explicit section content (not policy fallbacks).
   assertNoFrontmatterVsHeadingConflict({ key: "system", frontmatter: fmSystem, headingDerived: sections.system });
   assertNoFrontmatterVsHeadingConflict({ key: "rules", frontmatter: fmRules, headingDerived: sections.rules });
@@ -589,9 +720,11 @@ export function parseAgentMdFromString(raw: string): AgentDefinition {
   const icon = fmIcon ?? AGENT_DEFINITION_DEFAULTS.icon;
   const title = fmTitle ?? titleFallback ?? "";
   const description = fmDescription ?? descriptionFallback ?? "";
+  const avatar = fmAvatar ?? avatarFallback ?? undefined;
   const status = fmStatus ?? AGENT_DEFINITION_DEFAULTS.status;
   const templateEngine = fmTemplateEngine ?? AGENT_DEFINITION_DEFAULTS.templateEngine;
   const input = fmInput ?? AGENT_DEFINITION_DEFAULTS.input;
+  const abilities = fmAbilities ?? AGENT_DEFINITION_DEFAULTS.abilities;
   const recommended = (isPlainObject(fm.recommended) ? (fm.recommended as Record<string, unknown>) : undefined) ?? {
     ...AGENT_DEFINITION_DEFAULTS.recommended,
   };
@@ -609,11 +742,15 @@ export function parseAgentMdFromString(raw: string): AgentDefinition {
 
   // Policy order:
   // 1) ## System
-  // 2) description
-  // 3) title
-  const system = fmSystem || sections.system || description || title;
+  // 2) (optional) YAML frontmatter system
+  // 3) description
+  // 4) title
+  const system = sections.system || fmSystem || description || title;
 
-  const rules = fmRules ?? (sections.rules || AGENT_DEFINITION_DEFAULTS.rules);
+  // Policy order:
+  // 1) ## Rules
+  // 2) (optional) YAML frontmatter rules
+  const rules = sections.rules || fmRules || AGENT_DEFINITION_DEFAULTS.rules;
 
   if (!isNonEmptyString(title)) {
     throw new Error(`Missing title. Provide '# <Title>' or YAML frontmatter 'title'.`);
@@ -648,9 +785,11 @@ export function parseAgentMdFromString(raw: string): AgentDefinition {
     icon,
     title,
     description,
+    avatar,
     status,
     templateEngine,
     input,
+    abilities,
     recommended,
     required,
     commands,
