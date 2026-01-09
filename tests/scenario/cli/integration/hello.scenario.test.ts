@@ -1,18 +1,26 @@
 import { expect, test } from "vitest";
+import path from "node:path";
 import { CliSession, userSleep, userTypeDelay } from "../../../test-utils.js";
 
-test("cli scenario (integration): prints hello", async () => {
-  // In a real project this scenario would require secrets / real external services.
-  // Keep it simple and deterministic in this template repo.
-  const cli = new CliSession(process.execPath, ["-e", "console.log('Hello, world!')"], process.cwd());
+test("cli scenario (integration): asks name and greets", async () => {
+  // In a real project this scenario would validate gated integrations.
+  // Keep it deterministic here while still being user-like and informative.
+  const script = path.join(process.cwd(), "scripts", "cli-scenario.mjs");
+  const cli = new CliSession(process.execPath, [script], process.cwd());
 
   try {
-    await cli.waitFor("Hello, world!");
-    await userSleep();
-    expect(cli.output()).toContain("Hello, world!");
+    await cli.waitFor("What's your name");
+    await cli.typeCharByChar("anonymous", () => userTypeDelay(40));
+    cli.write("\r");
 
-    // Example of user-like typing (no-op for this minimal command).
-    await cli.typeCharByChar("", () => userTypeDelay(40));
+    await cli.waitFor("Hello anonymous!");
+    await userSleep();
+
+    const out = cli.output();
+    expect(out).toContain("What's your name");
+    expect(out).toContain("Hello anonymous!");
+    expect(out).toContain("\u001b[40m"); // dark background
+    expect(out).toContain("\u001b[92m"); // bright green foreground
   } finally {
     cli.kill();
   }
