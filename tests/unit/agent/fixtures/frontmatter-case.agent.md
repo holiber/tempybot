@@ -20,8 +20,8 @@ CoMmAnDs:
       echo hi
 ---
 
-# From Heading
-This paragraph should be ignored as description fallback.
+# From YAML
+YAML description.
 
 ## System
 System from section.
