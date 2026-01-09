@@ -1,0 +1,37 @@
+{
+  "commands": [
+    "../commands/migration",
+    {
+      "body": "| Risk | Likelihood | Impact | Mitigation | Owner |\n|------|------------|--------|------------|-------|\n| {{risk_1}} | {{likelihood_1}} | {{impact_1}} | {{mitigation_1}} | {{owner_1}} |\n",
+      "description": "A lightweight risk register template for migrations",
+      "name": "riskRegisterTemplate"
+    }
+  ],
+  "description": "",
+  "icon": "🧭",
+  "input": "repo",
+  "recommended": {
+    "audience": "engineering",
+    "capabilities": [
+      "fs",
+      "refactor",
+      "planning"
+    ],
+    "models": [
+      "gpt-4o"
+    ]
+  },
+  "required": {
+    "env": [
+      "NODE_VERSION"
+    ],
+    "startup": "analyzeRepo"
+  },
+  "rules": "- Start by inventorying: build system, runtime, key dependencies, CI, and test coverage.\n- Break work into small, reversible steps with clear acceptance criteria.\n- Call out risky areas: build tooling, transitive deps, generated code, API contracts.\n- Propose a branch strategy and a timeline with milestones.\n- Always include a rollback plan and \"stop conditions\".",
+  "status": "active",
+  "system": "You help teams plan and execute codebase migrations (framework upgrades, language changes, dependency modernization). You produce a staged plan with checkpoints, test strategy, rollout, and rollback. You bias toward incremental changes and measurable progress.",
+  "templateEngine": "hbs",
+  "title": "Codebase Migration Planner",
+  "toolsSource": "const tools = {\n  analyzeRepo: {\n    description: \"Summarize repository structure and migration surface area\",\n    run: \"echo 'analyze: languages, build, deps, tests, CI, entrypoints'\",\n  },\n  proposePlan: {\n    description: \"Create a staged migration plan with milestones\",\n    run: \"echo 'plan: stage 0..N with acceptance criteria'\",\n  },\n  defineTestPlan: {\n    description: \"Define a test and validation plan for the migration\",\n    run: \"echo 'tests: unit, integration, e2e, canary, metrics'\",\n  },\n};\nreturn tools;",
+  "version": "0.8.0"
+}
