@@ -27,3 +27,17 @@ This folder is generated from `docs/agent-examples/*.agent.md` using the reposit
 | security-dependency-auditor.agent.md | Security Dependency Auditor | active | 2 | 211 | 335 | 294 |
 | sql-performance-tuner.agent.md | SQL Performance Tuner | active | 2 | 224 | 476 | 375 |
 | terraform-pr-reviewer.agent.md | Terraform PR Reviewer | active | 1 | 228 | 411 | 523 |
+
+## Per-file notes
+
+- **codebase-migration-planner.agent.md**: frontmatter present; description empty (no paragraph fallback); required.startup=analyzeRepo; recommended extras: audience; commands=2
+- **customer-support-triage.agent.md**: frontmatter present; description empty (no paragraph fallback); commands=2
+- **etl-pipeline-debugger.agent.md**: frontmatter present; description empty (no paragraph fallback); commands=1
+- **kubernetes-incident-responder.agent.md**: no frontmatter (defaults apply); description present; commands=0
+- **product-requirements-writer.agent.md**: frontmatter present; description empty (no paragraph fallback); commands=1
+- **python-data-cleaner.agent.md**: frontmatter present; description empty (no paragraph fallback); recommended extras: focus; commands=1
+- **release-manager.agent.md**: frontmatter present; description empty (no paragraph fallback); required.startup=prepareRelease; commands=1
+- **security-dependency-auditor.agent.md**: frontmatter present; description empty (no paragraph fallback); commands=2
+- **sql-performance-tuner.agent.md**: frontmatter present; description empty (no paragraph fallback); recommended extras: profile; commands=2
+- **terraform-pr-reviewer.agent.md**: frontmatter present; description empty (no paragraph fallback); required.startup=validatePlan; commands=1
+

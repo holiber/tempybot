@@ -84,8 +84,11 @@ describe("agent examples compile (docs/agent-examples -> docs/generated/agent-ex
       "|--------|-------|--------|----------|--------------|------------|------------|",
     ];
 
+    const perFileNotes: string[] = [];
+
     for (const mdFile of mdFiles) {
       const sourcePath = path.join(examplesDir, mdFile);
+      const raw = await fs.readFile(sourcePath, "utf8");
       const parsed = await parseAgentMd(sourcePath);
 
       // Guardrail: ensure compiled JSON is a full AgentDefinition (no missing keys).
@@ -113,7 +116,26 @@ describe("agent examples compile (docs/agent-examples -> docs/generated/agent-ex
       reportLines.push(
         `| ${mdFile} | ${parsed.title.replace(/\|/g, "\\|")} | ${parsed.status} | ${parsed.commands.length} | ${parsed.system.length} | ${parsed.rules.length} | ${parsed.toolsSource.length} |`,
       );
+
+      const hasFrontmatter = raw.trimStart().startsWith("---");
+      const recommendedKeys = Object.keys(parsed.recommended ?? {});
+      const requiredKeys = Object.keys(parsed.required ?? {});
+      const recommendedExtras = recommendedKeys.filter((k) => k !== "models" && k !== "capabilities").sort();
+      const requiredExtras = requiredKeys.filter((k) => k !== "env" && k !== "startup").sort();
+      const startup = (parsed.required as Record<string, unknown>)?.startup;
+
+      const notes: string[] = [];
+      notes.push(hasFrontmatter ? "frontmatter present" : "no frontmatter (defaults apply)");
+      notes.push(parsed.description ? "description present" : "description empty (no paragraph fallback)");
+      if (startup) notes.push(`required.startup=${String(startup)}`);
+      if (recommendedExtras.length) notes.push(`recommended extras: ${recommendedExtras.join(", ")}`);
+      if (requiredExtras.length) notes.push(`required extras: ${requiredExtras.join(", ")}`);
+      notes.push(`commands=${parsed.commands.length}`);
+
+      perFileNotes.push(`- **${mdFile}**: ${notes.join("; ")}`);
     }
+
+    reportLines.push("", "## Per-file notes", "", ...perFileNotes, "");
 
     manifest.sort((a, b) => a.source.localeCompare(b.source));
     await fs.writeFile(path.join(outDir, "manifest.json"), stableStringifyJson(manifest), "utf8");
