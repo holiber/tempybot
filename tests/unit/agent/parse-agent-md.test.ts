@@ -58,7 +58,7 @@ describe("parseAgentMdFromString()", () => {
 
     expect(parsed.system).toBe("System from section.");
     expect(parsed.rules).toBe("");
-    expect(parsed.toolsSource).toBe("");
+    expect(parsed.toolsSource).toContain("init");
   });
 
   it("throws on conflicting title between YAML frontmatter and H1 title", () => {
@@ -149,6 +149,93 @@ commands:
 # Title
 `;
     expect(() => parseAgentMdFromString(raw)).toThrow(/commands\[0\]\.description/);
+  });
+
+  it("accepts http(s) command URLs and local path command refs", () => {
+    const raw = `---
+commands:
+  - ./commands
+  - https://example.com/commands/test.md
+---
+
+# Title
+`;
+    const parsed = parseAgentMdFromString(raw);
+    expect(parsed.commands).toEqual(["./commands", "https://example.com/commands/test.md"]);
+  });
+
+  it("throws on command string refs that are neither a local path nor a URL", () => {
+    const raw = `---
+commands:
+  - test
+---
+
+# Title
+`;
+    expect(() => parseAgentMdFromString(raw)).toThrow(/commands\[0\].*local path.*URL/i);
+  });
+
+  it("validates required.startup references a tool in ## Tools (case-insensitive, return object literal)", () => {
+    const raw = `---
+required:
+  startup: Ping
+---
+
+# Title
+
+## Tools
+return {
+  ping: {
+    fn: () => "pong",
+    scheme: { name: "ping", description: "Ping", parameters: { type: "object", properties: {} } },
+  },
+};
+`;
+    const parsed = parseAgentMdFromString(raw);
+    expect(parsed.required).toEqual({ startup: "Ping" });
+  });
+
+  it("validates required.startup references a tool in ## Tools (return identifier)", () => {
+    const raw = `---
+required:
+  startup: init
+---
+
+# Title
+
+## Tools
+const tools = {
+  init: { fn: () => true, scheme: { name: "init", description: "Init", parameters: { type: "object" } } },
+};
+return tools;
+`;
+    const parsed = parseAgentMdFromString(raw);
+    expect(parsed.required).toEqual({ startup: "init" });
+  });
+
+  it("throws when required.startup is set but no tools are declared", () => {
+    const raw = `---
+required:
+  startup: init
+---
+
+# Title
+`;
+    expect(() => parseAgentMdFromString(raw)).toThrow(/required\.startup.*no tools were found/i);
+  });
+
+  it("throws when required.startup does not match any declared tool", () => {
+    const raw = `---
+required:
+  startup: nope
+---
+
+# Title
+
+## Tools
+return { ping: { fn: () => "pong", scheme: { name: "ping", description: "Ping", parameters: { type: "object" } } } };
+`;
+    expect(() => parseAgentMdFromString(raw)).toThrow(/required\.startup.*does not match/i);
   });
 
   it("throws on invalid type for known scalar fields", () => {
