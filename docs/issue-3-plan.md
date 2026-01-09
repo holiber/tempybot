@@ -63,7 +63,7 @@ Deliverable: strict, safe loader behavior (stop on ambiguity).
 Deliverable: full coverage of “Tools/Commands/Startup requirements”.
 
 #### PR 4 — Integration: file discovery + CLI + scenario coverage
-- Add a small CLI command (example: `tempybot agent parse <glob...>`) that:
+- Add a small CLI command (example: `tempybot agent parse <file.agent.md> [--out <file.json>]`) that:
   - finds `.agent.md` files
   - parses each file
   - prints JSON or writes `*.json` next to inputs (decide in PR)
