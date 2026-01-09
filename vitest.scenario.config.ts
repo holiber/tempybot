@@ -7,7 +7,12 @@ export default defineConfig({
     testTimeout: 60_000,
     hookTimeout: 60_000,
     // Scenarios should be deterministic; keep them sequential.
-    threads: false,
+    pool: "forks",
+    poolOptions: {
+      forks: {
+        singleFork: true,
+      },
+    },
     fileParallelism: false,
   },
 });
