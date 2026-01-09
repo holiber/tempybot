@@ -1,3 +1,4 @@
+import * as pty from "node-pty";
 import { chromium, devices, type Browser, type BrowserContext, type Page } from "playwright";
 
 /**
@@ -29,6 +30,65 @@ export async function userTypeDelay(ms = 40): Promise<void> {
   await userSleep(ms);
 }
 
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * CliSession
+ *
+ * Runs a CLI inside a pseudo-terminal (PTY) so it behaves like a real terminal.
+ * Useful for user-like scenario tests and reliable output capturing.
+ */
+export class CliSession {
+  private term: pty.IPty;
+  private buffer = "";
+
+  constructor(cmd: string, args: string[], cwd: string) {
+    this.term = pty.spawn(cmd, args, {
+      cwd,
+      name: "xterm-256color",
+      cols: 120,
+      rows: 30,
+      env: { ...process.env, FORCE_COLOR: "1" },
+    });
+
+    this.term.onData((data) => {
+      this.buffer += data;
+    });
+  }
+
+  output(): string {
+    return this.buffer;
+  }
+
+  write(text: string): void {
+    this.term.write(text);
+  }
+
+  kill(): void {
+    this.term.kill();
+  }
+
+  async typeCharByChar(text: string, onEachChar?: () => Promise<void>): Promise<void> {
+    for (const ch of text) {
+      this.term.write(ch);
+      if (onEachChar) await onEachChar();
+    }
+  }
+
+  async waitFor(pattern: RegExp | string, timeoutMs = 20_000): Promise<void> {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const content = this.buffer;
+      const matched =
+        typeof pattern === "string" ? content.includes(pattern) : pattern.test(content);
+      if (matched) return;
+      await sleep(50);
+    }
+
+    throw new Error(`Timeout waiting for: ${String(pattern)}\n\nCLI output so far:\n${this.buffer}`);
+  }
+}
+
 export type WebSession = {
   browser: Browser;
   context: BrowserContext;
@@ -40,12 +100,19 @@ export async function startWebSession(): Promise<WebSession> {
   const browser = await chromium.launch({ headless: true });
 
   let context: BrowserContext;
+  const recordVideoDir =
+    SCENARIO_MODE === "userlike" ? process.env.E2E_WEB_VIDEO_DIR : undefined;
+
   if (SCENARIO_WEB_DEVICE === "mobile") {
     const device = devices["iPhone 14"];
-    context = await browser.newContext({ ...device });
+    context = await browser.newContext({
+      ...device,
+      recordVideo: recordVideoDir ? { dir: recordVideoDir } : undefined,
+    });
   } else {
     context = await browser.newContext({
       viewport: { width: 1280, height: 720 },
+      recordVideo: recordVideoDir ? { dir: recordVideoDir } : undefined,
     });
   }
 
@@ -56,6 +123,7 @@ export async function startWebSession(): Promise<WebSession> {
     context,
     page,
     close: async () => {
+      // Video is finalized when the context is closed.
       await context.close();
       await browser.close();
     },
