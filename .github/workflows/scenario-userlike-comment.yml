@@ -114,7 +114,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install agg
-        run: cargo install agg
+        run: |
+          # asciinema/agg (terminal recording -> gif) is used to convert CLI casts to mp4.
+          # crates.io "agg" is a different library crate (no binaries), so install from git.
+          cargo install --locked --git https://github.com/asciinema/agg || \
+          cargo install --git https://github.com/asciinema/agg --force || true
 
       - name: Run affected scenarios in userlike mode
         env:
