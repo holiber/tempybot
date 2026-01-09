@@ -1,17 +1,36 @@
 import { expect, test } from "vitest";
-import { startWebSession, userSleep } from "../../test-utils.js";
+import { startServer } from "../../../src/server.js";
+import { startWebSession, userSleep, userType } from "../../test-utils.js";
 
-test("web scenario: sees hello world", async () => {
+test("web scenario: logs in and sees greetings", async () => {
+  const server = await startServer();
   const web = await startWebSession();
   try {
-    await web.page.setContent(`<h1 data-testid="title">Hello, world!</h1>`);
+    await web.page.goto(`${server.url}/auth`);
+
+    await web.page.getByTestId("auth-form").waitFor({ state: "visible" });
+    expect(await web.page.getByTestId("auth-form").isVisible()).toBe(true);
+
+    await userType(web.page, '[data-testid="login-input"]', "hello word");
+    await userType(web.page, '[data-testid="password-input"]', "hello word");
+    await userSleep(250);
+
+    await web.page.getByTestId("remember-checkbox").check();
+    await userSleep(250);
+
+    await web.page.getByTestId("login-button").click();
+
+    await web.page.getByTestId("auth-form").waitFor({ state: "hidden" });
+    await web.page.getByTestId("greetings-title").waitFor({ state: "visible" });
+
+    expect(await web.page.getByTestId("auth-form").isVisible()).toBe(false);
+    expect(await web.page.getByTestId("greetings-title").textContent()).toBe("Greetings!");
+
     // Give the video recorder enough time to capture at least a few frames.
-    // Extremely short sessions can result in no output video on some runners.
-    await web.page.getByTestId("title").hover();
+    await web.page.getByTestId("greetings-title").hover();
     await userSleep(400);
-    const title = await web.page.getByTestId("title").textContent();
-    expect(title).toBe("Hello, world!");
   } finally {
+    await server.close();
     await web.close();
   }
 });
