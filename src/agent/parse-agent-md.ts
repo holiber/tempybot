@@ -15,6 +15,14 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+function normalizeComparableText(s: string): string {
+  return s.trim().toLowerCase();
+}
+
+function isNonEmptyString(v: unknown): v is string {
+  return typeof v === "string" && v.trim().length > 0;
+}
+
 function lowercaseKeysDeep(v: unknown): unknown {
   if (Array.isArray(v)) return v.map((x) => lowercaseKeysDeep(x));
   if (!isPlainObject(v)) return v;
@@ -30,16 +38,84 @@ function getString(v: unknown): string | undefined {
   return undefined;
 }
 
-function getStatus(v: unknown): AgentStatus | undefined {
-  if (typeof v !== "string") return undefined;
-  const s = v.toLowerCase().trim();
-  if (s === "active" || s === "deprecated" || s === "disabled") return s;
-  return undefined;
+function getStringStrict(opts: { key: string; v: unknown; allowEmpty?: boolean }): string | undefined {
+  const { key, v, allowEmpty = false } = opts;
+  if (v === undefined) return undefined;
+  if (typeof v !== "string") {
+    throw new Error(`Invalid frontmatter '${key}': expected a string.`);
+  }
+  if (!allowEmpty && v.trim().length === 0) {
+    throw new Error(`Invalid frontmatter '${key}': must be a non-empty string.`);
+  }
+  return v;
 }
 
-function getCommands(v: unknown): AgentCommand[] | undefined {
-  if (!Array.isArray(v)) return undefined;
-  return v as AgentCommand[];
+function getStatusStrict(v: unknown): AgentStatus | undefined {
+  if (v === undefined) return undefined;
+  if (typeof v !== "string") {
+    throw new Error(`Invalid frontmatter 'status': expected a string (active | deprecated | disabled).`);
+  }
+  const s = v.toLowerCase().trim();
+  if (s === "active" || s === "deprecated" || s === "disabled") return s;
+  throw new Error(`Invalid frontmatter 'status': '${v}'. Expected active | deprecated | disabled.`);
+}
+
+function getCommandsStrict(v: unknown): AgentCommand[] | undefined {
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v)) {
+    throw new Error(`Invalid frontmatter 'commands': expected an array of strings or inline command objects.`);
+  }
+  if (v.length === 0) {
+    throw new Error(`Invalid frontmatter 'commands': must not be an empty array (omit it or provide entries).`);
+  }
+
+  const out: AgentCommand[] = [];
+  for (let i = 0; i < v.length; i++) {
+    const item = v[i];
+    if (typeof item === "string") {
+      if (item.trim().length === 0) {
+        throw new Error(`Invalid frontmatter 'commands[${i}]': string must be non-empty.`);
+      }
+      out.push(item);
+      continue;
+    }
+    if (!isPlainObject(item)) {
+      throw new Error(`Invalid frontmatter 'commands[${i}]': expected a string or an object.`);
+    }
+
+    const name = item.name;
+    const description = item.description;
+    const body = item.body;
+    if (!isNonEmptyString(name)) {
+      throw new Error(`Invalid frontmatter 'commands[${i}].name': expected a non-empty string.`);
+    }
+    if (!isNonEmptyString(description)) {
+      throw new Error(`Invalid frontmatter 'commands[${i}].description': expected a non-empty string.`);
+    }
+    if (!isNonEmptyString(body)) {
+      throw new Error(`Invalid frontmatter 'commands[${i}].body': expected a non-empty string.`);
+    }
+
+    const argumentHint = item["argument-hint"];
+    if (argumentHint !== undefined) {
+      if (typeof argumentHint === "string") {
+        if (argumentHint.trim().length === 0) {
+          throw new Error(`Invalid frontmatter 'commands[${i}].argument-hint': must be non-empty if provided.`);
+        }
+      } else if (Array.isArray(argumentHint)) {
+        if (argumentHint.some((x) => typeof x !== "string" || x.trim().length === 0)) {
+          throw new Error(
+            `Invalid frontmatter 'commands[${i}].argument-hint': expected string[] of non-empty strings.`,
+          );
+        }
+      } else {
+        throw new Error(`Invalid frontmatter 'commands[${i}].argument-hint': expected a string or string[].`);
+      }
+    }
+
+    out.push(item as AgentCommand);
+  }
+  return out;
 }
 
 type SectionName = "system" | "rules" | "tools";
@@ -131,6 +207,23 @@ function extractTitleAndDescriptionFallbacks(tree: Root): { title?: string; desc
   return { title: title || undefined, description };
 }
 
+function assertNoFrontmatterVsHeadingConflict(opts: {
+  key: "title" | "description" | "system" | "rules";
+  frontmatter: string | undefined;
+  headingDerived: string | undefined;
+}): void {
+  const { key, frontmatter, headingDerived } = opts;
+  if (!isNonEmptyString(frontmatter) || !isNonEmptyString(headingDerived)) return;
+
+  if (normalizeComparableText(frontmatter) !== normalizeComparableText(headingDerived)) {
+    throw new Error(
+      `Conflicting '${key}' between YAML frontmatter and Markdown content. ` +
+        `Frontmatter='${frontmatter.trim()}' vs Markdown='${headingDerived.trim()}'. ` +
+        `Remove one or make them match (comparison is case-insensitive and trimmed).`,
+    );
+  }
+}
+
 export function parseAgentMdFromString(raw: string): AgentDefinition {
   const parsed = matter(raw, {
     engines: {
@@ -146,26 +239,59 @@ export function parseAgentMdFromString(raw: string): AgentDefinition {
   const { title: titleFallback, description: descriptionFallback } = extractTitleAndDescriptionFallbacks(tree);
   const sections = extractNamedSections(parsed.content, tree);
 
-  const version = getString(fm.version) ?? AGENT_DEFINITION_DEFAULTS.version;
-  const icon = getString(fm.icon) ?? AGENT_DEFINITION_DEFAULTS.icon;
-  const title = getString(fm.title) ?? titleFallback ?? "";
-  const description = getString(fm.description) ?? descriptionFallback ?? "";
-  const status = getStatus(fm.status) ?? AGENT_DEFINITION_DEFAULTS.status;
-  const templateEngine = getString(fm.templateengine) ?? AGENT_DEFINITION_DEFAULTS.templateEngine;
-  const input = getString(fm.input) ?? AGENT_DEFINITION_DEFAULTS.input;
+  const fmVersion = getStringStrict({ key: "version", v: fm.version });
+  const fmIcon = getStringStrict({ key: "icon", v: fm.icon });
+  const fmTitle = getStringStrict({ key: "title", v: fm.title });
+  const fmDescription = getStringStrict({ key: "description", v: fm.description, allowEmpty: true });
+  const fmSystem = getStringStrict({ key: "system", v: fm.system, allowEmpty: true });
+  const fmRules = getStringStrict({ key: "rules", v: fm.rules, allowEmpty: true });
+  const fmTemplateEngine = getStringStrict({ key: "templateengine", v: fm.templateengine, allowEmpty: true });
+  const fmInput = getStringStrict({ key: "input", v: fm.input, allowEmpty: true });
+  const fmStatus = getStatusStrict(fm.status);
+
+  assertNoFrontmatterVsHeadingConflict({ key: "title", frontmatter: fmTitle, headingDerived: titleFallback });
+  assertNoFrontmatterVsHeadingConflict({
+    key: "description",
+    frontmatter: fmDescription,
+    headingDerived: descriptionFallback,
+  });
+  // Only compare frontmatter vs explicit section content (not policy fallbacks).
+  assertNoFrontmatterVsHeadingConflict({ key: "system", frontmatter: fmSystem, headingDerived: sections.system });
+  assertNoFrontmatterVsHeadingConflict({ key: "rules", frontmatter: fmRules, headingDerived: sections.rules });
+
+  const version = fmVersion ?? AGENT_DEFINITION_DEFAULTS.version;
+  const icon = fmIcon ?? AGENT_DEFINITION_DEFAULTS.icon;
+  const title = fmTitle ?? titleFallback ?? "";
+  const description = fmDescription ?? descriptionFallback ?? "";
+  const status = fmStatus ?? AGENT_DEFINITION_DEFAULTS.status;
+  const templateEngine = fmTemplateEngine ?? AGENT_DEFINITION_DEFAULTS.templateEngine;
+  const input = fmInput ?? AGENT_DEFINITION_DEFAULTS.input;
   const recommended = (isPlainObject(fm.recommended) ? (fm.recommended as Record<string, unknown>) : undefined) ?? {
     ...AGENT_DEFINITION_DEFAULTS.recommended,
   };
   const required = (isPlainObject(fm.required) ? (fm.required as Record<string, unknown>) : undefined) ?? {
     ...AGENT_DEFINITION_DEFAULTS.required,
   };
-  const commands = getCommands(fm.commands) ?? [...AGENT_DEFINITION_DEFAULTS.commands];
+  if (fm.recommended !== undefined && !isPlainObject(fm.recommended)) {
+    throw new Error(`Invalid frontmatter 'recommended': expected an object.`);
+  }
+  if (fm.required !== undefined && !isPlainObject(fm.required)) {
+    throw new Error(`Invalid frontmatter 'required': expected an object.`);
+  }
+
+  const commands = getCommandsStrict(fm.commands) ?? [...AGENT_DEFINITION_DEFAULTS.commands];
 
   // Policy order:
   // 1) ## System
   // 2) description
   // 3) title
-  const system = sections.system || description || title;
+  const system = fmSystem || sections.system || description || title;
+
+  const rules = fmRules ?? (sections.rules || AGENT_DEFINITION_DEFAULTS.rules);
+
+  if (!isNonEmptyString(title)) {
+    throw new Error(`Missing title. Provide '# <Title>' or YAML frontmatter 'title'.`);
+  }
 
   return {
     version,
@@ -179,7 +305,7 @@ export function parseAgentMdFromString(raw: string): AgentDefinition {
     required,
     commands,
     system,
-    rules: sections.rules || AGENT_DEFINITION_DEFAULTS.rules,
+    rules,
     toolsSource: sections.tools || AGENT_DEFINITION_DEFAULTS.toolsSource,
   };
 }

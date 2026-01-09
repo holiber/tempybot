@@ -60,6 +60,106 @@ describe("parseAgentMdFromString()", () => {
     expect(parsed.rules).toBe("");
     expect(parsed.toolsSource).toBe("");
   });
+
+  it("throws on conflicting title between YAML frontmatter and H1 title", () => {
+    const raw = `---
+title: From YAML
+---
+
+# From Heading
+`;
+    expect(() => parseAgentMdFromString(raw)).toThrow(/Conflicting 'title'/);
+  });
+
+  it("throws on conflicting description between YAML frontmatter and first paragraph fallback", () => {
+    const raw = `---
+description: From YAML
+---
+
+# Title
+From Heading
+`;
+    expect(() => parseAgentMdFromString(raw)).toThrow(/Conflicting 'description'/);
+  });
+
+  it("throws on conflicting system between YAML frontmatter and ## System section", () => {
+    const raw = `---
+system: From YAML
+---
+
+# Title
+
+## System
+From Heading
+`;
+    expect(() => parseAgentMdFromString(raw)).toThrow(/Conflicting 'system'/);
+  });
+
+  it("throws on conflicting rules between YAML frontmatter and ## Rules section", () => {
+    const raw = `---
+rules: From YAML
+---
+
+# Title
+
+## Rules
+From Heading
+`;
+    expect(() => parseAgentMdFromString(raw)).toThrow(/Conflicting 'rules'/);
+  });
+
+  it("throws on invalid status (instead of defaulting)", () => {
+    const raw = `---
+status: nope
+---
+
+# Title
+`;
+    expect(() => parseAgentMdFromString(raw)).toThrow(/Invalid frontmatter 'status'/);
+  });
+
+  it("throws on malformed commands (non-array)", () => {
+    const raw = `---
+commands: hello
+---
+
+# Title
+`;
+    expect(() => parseAgentMdFromString(raw)).toThrow(/Invalid frontmatter 'commands': expected an array/);
+  });
+
+  it("throws on empty commands array", () => {
+    const raw = `---
+commands: []
+---
+
+# Title
+`;
+    expect(() => parseAgentMdFromString(raw)).toThrow(/must not be an empty array/);
+  });
+
+  it("throws on malformed inline command objects", () => {
+    const raw = `---
+commands:
+  - name: test
+    description: ""
+    body: echo hi
+---
+
+# Title
+`;
+    expect(() => parseAgentMdFromString(raw)).toThrow(/commands\[0\]\.description/);
+  });
+
+  it("throws on invalid type for known scalar fields", () => {
+    const raw = `---
+title: 123
+---
+
+# Title
+`;
+    expect(() => parseAgentMdFromString(raw)).toThrow(/Invalid frontmatter 'title': expected a string/);
+  });
 });
 
 describe("parseAgentMd()", () => {
