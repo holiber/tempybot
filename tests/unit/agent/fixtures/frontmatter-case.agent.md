@@ -26,3 +26,15 @@ YAML description.
 ## System
 System from section.
 
+## Tools
+return {
+  init: {
+    fn: () => true,
+    scheme: {
+      name: "init",
+      description: "Init",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+};
+
