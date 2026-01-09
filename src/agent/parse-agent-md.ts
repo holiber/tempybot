@@ -780,16 +780,19 @@ export function parseAgentMdFromString(raw: string): AgentDefinition {
     }
   }
 
+  // Keep the output JSON-friendly and deterministic:
+  // - Do not include optional fields when they are undefined.
+  //   (JSON.stringify would drop them anyway, but keeping them out also avoids Object.keys() surprises.)
   return {
     version,
     icon,
     title,
     description,
-    avatar,
+    ...(avatar !== undefined ? { avatar } : {}),
     status,
     templateEngine,
     input,
-    abilities,
+    ...(abilities !== undefined ? { abilities } : {}),
     recommended,
     required,
     commands,
