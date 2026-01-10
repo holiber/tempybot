@@ -20,6 +20,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run test:unit && npm run test:e2e",
+    "mcp:cursor-cloud-agents": "node scripts/mcp-cursor-cloud-agents.mjs",
     "test:unit": "vitest run tests/unit --exclude tests/unit/integration",
     "test:unit:integration": "vitest run tests/unit/integration",
     "test:e2e": "playwright test tests/e2e --grep-invert @integration",
@@ -34,6 +35,7 @@
     "test:integration": "npm run test:unit:integration && npm run test:e2e:integration && npm run test:scenario:integration"
   },
   "devDependencies": {
+    "@ivotoby/openapi-mcp-server": "^1.12.3",
     "@playwright/test": "^1.50.1",
     "@types/node": "^22.10.7",
     "node-pty": "^1.0.0",

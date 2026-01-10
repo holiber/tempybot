@@ -40,3 +40,9 @@ tempybot parse "./docs/agent-examples/python-data-cleaner.agent.md" --out "./pyt
 
 If parsing fails, the CLI prints the reason to stderr and exits with a non-zero code.
 
+## Cursor Cloud Agents (OpenAPI + MCP)
+
+- **Spec**: `src/agnet/cloud-agents-openapi.yaml`
+- **MCP server (stdio)**: `npm run mcp:cursor-cloud-agents`
+- **Docs**: `docs/agnet/mcp-cursor-cloud-agents.md`
+
