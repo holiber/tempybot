@@ -10,11 +10,12 @@ test("cli scenario (integration): asks name and greets", async () => {
 
   try {
     await cli.waitFor("What's your name");
-    await cli.typeCharByChar("anonymous", () => userTypeDelay(40));
+    await userSleep(600);
+    await cli.typeCharByChar("anonymous", () => userTypeDelay());
     cli.write("\r");
 
     await cli.waitFor("Hello anonymous!");
-    await userSleep();
+    await userSleep(1200);
 
     const out = cli.output();
     expect(out).toContain("What's your name");
