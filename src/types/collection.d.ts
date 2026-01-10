@@ -1,146 +1,118 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 
 /**
- * STCAPI — Collection Spec (Tier 1)
+ * STCAPI — Collection Spec (Tier 1) (minified)
  *
- * Collection = in-memory key-value store with limits and safe defaults.
- * Tier 1 focuses on:
- * - in-memory implementation
- * - generic typing
+ * Collection = in-memory KV store.
+ * Tier1 includes:
+ * - flat + tree
  * - deterministic key access
+ * - meta generic everywhere
  *
  * Proposal:
- * - query language
+ * - query language / filtering
  * - indices
- * - persistent backends
+ * - persistence backends
  */
 
 export declare namespace STC {
   export namespace Collection {
+    /** Generic meta container (convention). */
+    export type Meta<M extends Record<string, unknown> = Record<string, unknown>> = M;
+
     /** Supported key types (Tier1). */
     export type Key = string | number;
 
-    /** Generic record shape stored in collections. */
-    export type AnyRecord = Record<string, unknown>;
+    /** Stored record shape (must allow meta). */
+    export type Record<M extends Meta = Meta> = {
+      meta?: M;
+      [k: string]: unknown;
+    };
 
-    /** Collection kind (Tier1). */
     export type Kind = "flat" | "tree";
 
-    /** Base options for all collections. */
-    export interface Options<K extends Key = Key> {
-      /** Collection name (for diagnostics/debugging). */
+    export interface Options<
+      K extends Key = Key,
+      M extends Meta = Meta
+    > {
       name?: string;
 
-      /** Explicit key field in record (optional). */
+      /**
+       * If provided, upsert(record) may infer key from record[keyField].
+       * (No autoKey in Tier1; if missing -> impl may throw.)
+       */
       keyField?: string;
 
-      /**
-       * Max number of records allowed.
-       * Default: 10000
-       * Warning emitted at 90%.
-       */
-      limit?: number;
-
-      /**
-       * If true, collection will auto-generate keys
-       * when not provided explicitly.
-       */
-      autoKey?: boolean;
-
-      /** Collection kind. */
-      kind?: Kind;
+      meta?: M;
     }
 
-    /** Tree collection specific options. */
-    export interface TreeOptions<K extends Key = Key> extends Options<K> {
+    export interface TreeOptions<
+      K extends Key = Key,
+      M extends Meta = Meta
+    > extends Options<K, M> {
       kind: "tree";
 
       /**
-       * Parent reference field.
-       * Required for tree collections.
+       * Field in record that points to parent key.
+       * If absent/undefined => root node.
        */
       parentField: string;
     }
 
-    /** Result of upsert operation. */
+    export type UpsertOp = "create" | "update";
+
     export interface UpsertResult<K extends Key> {
       key: K;
-      created: boolean;
-      updated: boolean;
+      op: UpsertOp;
     }
 
-    /** Base collection interface (Tier1). */
-    export interface Collection<T extends AnyRecord, K extends Key = Key> {
-      /** Collection kind. */
+    export interface Collection<
+      T extends Record<M>,
+      K extends Key = Key,
+      M extends Meta = Meta
+    > {
       readonly kind: Kind;
-
-      /** Number of records stored. */
       readonly size: number;
+      readonly meta?: M;
 
-      /** Collection options (resolved defaults). */
-      readonly options: Readonly<Options<K>>;
-
-      /** Get record by key. */
       get(key: K): T | undefined;
-
-      /** Check if key exists. */
       has(key: K): boolean;
 
-      /** Insert or update record. */
-      upsert(record: T & Partial<Record<string, K>>): UpsertResult<K>;
+      /**
+       * Insert or update.
+       * - If key is provided, it wins.
+       * - Else impl may infer from options.keyField.
+       */
+      upsert(record: T, key?: K): UpsertResult<K>;
 
-      /** Remove record by key. */
       delete(key: K): boolean;
-
-      /** Remove all records. */
       clear(): void;
 
-      /** List all records (unordered). */
+      /** Unordered snapshot. */
       list(): T[];
 
-      /** Iterate over records. */
       values(): Iterable<T>;
-
-      /** Iterate over keys. */
       keys(): Iterable<K>;
     }
 
-    /** Tree collection interface (Tier1). */
     export interface TreeCollection<
-      T extends AnyRecord & { [key: string]: K },
-      K extends Key = Key
-    > extends Collection<T, K> {
+      T extends Record<M>,
+      K extends Key = Key,
+      M extends Meta = Meta
+    > extends Collection<T, K, M> {
       readonly kind: "tree";
 
-      /** Get direct children of a node. */
-      getChildren(parentKey: K): T[];
+      /** Direct children for given parent key. */
+      childrenOf(parentKey: K): T[];
 
-      /** Get parent record (if exists). */
-      getParent(key: K): T | undefined;
-    }
-
-    /**
-     * Factory for creating collections.
-     * Usually provided by Workbench/Runtime.
-     */
-    export interface Factory {
-      create<T extends AnyRecord, K extends Key = Key>(
-        options?: Options<K>
-      ): Collection<T, K>;
-
-      createTree<T extends AnyRecord, K extends Key = Key>(
-        options: TreeOptions<K>
-      ): TreeCollection<T & { [key: string]: K }, K>;
+      /** Parent record for node key (if exists). */
+      parentOf(key: K): T | undefined;
     }
 
     // ----------------------------
     // Proposal (Tier2+)
     // ----------------------------
     export namespace Proposal {
-      /** Graph collection kinds. */
-      export type Kind = "ugraph" | "mgraph";
-
-      /** Query language support (e.g. mingo). */
       export interface QueryOptions {
         filter?: unknown;
         sort?: unknown;
@@ -148,17 +120,14 @@ export declare namespace STC {
         skip?: number;
       }
 
-      /** Indexed collections. */
       export interface Index {
         fields: string[];
         unique?: boolean;
         kind?: "btree" | "hash";
       }
 
-      /** Persistent backends. */
       export type Backend = "memory" | "fs" | "db" | "redis" | "rabbitmq";
 
-      /** Binary / high-performance records (WASM, shared memory). */
       export interface BinaryRecord {
         buffer: ArrayBuffer;
         schema?: unknown;
