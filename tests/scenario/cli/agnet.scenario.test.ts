@@ -1,97 +1,131 @@
 /**
- * NOTE (CI investigation needed)
+ * CLI scenario tests.
  *
- * These CLI scenario tests are temporarily disabled.
- *
- * In GitHub Actions "scenario tests (smoke)" this file was intermittently reported as the failing scenario,
- * even when its corresponding `.cache/smokecheck/agnet.log` showed all tests passing.
- *
- * TODO: Figure out why CI sometimes reports `FAILED: tests/scenario/cli/agnet.scenario.test.ts`
- * and re-enable these scenarios once the root cause is understood.
+ * IMPORTANT:
+ * - These tests run the CLI inside a PTY (see `CliSession`).
+ * - To keep output deterministic, we force JSON output mode and assert only on parsed JSON.
  *
  * Unit tests covering the same CLI contract live in: `tests/unit/agnet-cli.test.ts`
  */
 
-import { test } from "vitest";
-
-// Vitest exits non-zero for files with zero tests (in scenario mode), which breaks CI smoke runs.
-// Keep a single skipped placeholder test so the file remains a valid scenario test file.
-test.skip("agnet CLI scenario tests are temporarily disabled (see note above)", () => {});
-
-/*
-import { expect, test } from "vitest";
 import path from "node:path";
+import { expect, test } from "vitest";
 import { CliSession } from "../test-utils.js";
 
-test("agnet doctor prints header and template count", async () => {
+function stripAnsi(s: string): string {
+  // Minimal ANSI stripping for robustness with PTY output.
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/\u001b\[[0-9;]*m/g, "");
+}
+
+function parseLastJsonObject<T>(rawOutput: string): T {
+  const out = stripAnsi(rawOutput).replace(/\r/g, "").trim();
+  if (!out) throw new Error(`Expected JSON output, got empty output.`);
+
+  // agnet.ts prints a single JSON object, but PTY output can include extra whitespace.
+  // Be defensive and parse the outermost {...} block.
+  const start = out.indexOf("{");
+  const end = out.lastIndexOf("}");
+  if (start < 0 || end < 0 || end <= start) {
+    throw new Error(`Expected JSON object in output.\n\nRaw output:\n${out}`);
+  }
+
+  const jsonText = out.slice(start, end + 1);
+  try {
+    return JSON.parse(jsonText) as T;
+  } catch (e) {
+    throw new Error(
+      `Failed to parse JSON from output: ${e instanceof Error ? e.message : String(e)}\n\nRaw output:\n${out}`
+    );
+  }
+}
+
+test("agnet doctor prints templates count (json)", async () => {
   const script = path.join(process.cwd(), "scripts", "agnet.ts");
   const template = path.join(process.cwd(), "agents", "repoboss.agent.md");
-  const cli = new CliSession(process.execPath, [script, "--templates", template, "doctor"], process.cwd());
+  const cli = new CliSession(process.execPath, [script, "--json", "--templates", template, "doctor"], process.cwd());
 
   try {
     const { exitCode } = await cli.waitForExit(60_000);
-    const out = cli.output();
-
     expect(exitCode).toBe(0);
-    expect(out).toContain("Doctor");
-    expect(out).toContain("Templates loaded: 1");
+
+    const json = parseLastJsonObject<{
+      ok: true;
+      command: "doctor";
+      templatesLoaded: number;
+      templates: string[];
+    }>(cli.output());
+
+    expect(json.ok).toBe(true);
+    expect(json.command).toBe("doctor");
+    expect(json.templatesLoaded).toBe(1);
+    expect(json.templates).toEqual(["agents/repoboss.agent.md"]);
   } finally {
     cli.kill();
   }
 });
 
-test("agnet run --world prints stub world", async () => {
+test("agnet run --world prints stub world (json)", async () => {
   const script = path.join(process.cwd(), "scripts", "agnet.ts");
   const template = path.join(process.cwd(), "agents", "repoboss.agent.md");
   const cli = new CliSession(
     process.execPath,
-    [script, "--templates", template, "run", "--world"],
+    [script, "--json", "--templates", template, "run", "--world"],
     process.cwd()
   );
 
   try {
     const { exitCode } = await cli.waitForExit(60_000);
-    const out = cli.output();
-
     expect(exitCode).toBe(0);
-    expect(out).toContain("WORLD");
-    expect(out).toMatch(/items:\s*0/);
+
+    const json = parseLastJsonObject<{ ok: true; command: "run"; world: { items: number } }>(cli.output());
+    expect(json.ok).toBe(true);
+    expect(json.command).toBe("run");
+    expect(json.world.items).toBe(0);
   } finally {
     cli.kill();
   }
 });
 
-test("missing --templates path fails with a helpful error", async () => {
+test("missing --templates path fails with a helpful error (json)", async () => {
   const script = path.join(process.cwd(), "scripts", "agnet.ts");
   const missing = path.join(process.cwd(), "agents", "does-not-exist.agent.md");
-  const cli = new CliSession(process.execPath, [script, "--templates", missing, "doctor"], process.cwd());
+  const cli = new CliSession(process.execPath, [script, "--json", "--templates", missing, "doctor"], process.cwd());
 
   try {
     const { exitCode } = await cli.waitForExit(60_000);
-    const out = cli.output();
-
     expect(exitCode).not.toBe(0);
-    expect(out).toMatch(/--templates/i);
-    expect(out).toMatch(/not found/i);
+
+    const json = parseLastJsonObject<{ ok: false; error: { message: string } }>(cli.output());
+    expect(json.ok).toBe(false);
+    expect(json.error.message).toMatch(/--templates/i);
+    expect(json.error.message).toMatch(/not found/i);
   } finally {
     cli.kill();
   }
 });
 
-test("tools prints help and exits non-zero on wrong usage", async () => {
+test("tools prints help and exits non-zero on wrong usage (json)", async () => {
   const script = path.join(process.cwd(), "scripts", "agnet.ts");
-  const cli = new CliSession(process.execPath, [script, "tools", "nope"], process.cwd());
+  const cli = new CliSession(process.execPath, [script, "--json", "tools", "nope"], process.cwd());
 
   try {
     const { exitCode } = await cli.waitForExit(60_000);
-    const out = cli.output();
-
     expect(exitCode).toBe(2);
-    expect(out).toContain("agnet.ts tools");
-    expect(out).toMatch(/Unknown tools command/i);
+
+    const json = parseLastJsonObject<{
+      ok: false;
+      command: "tools";
+      error: { message: string };
+      help: string;
+    }>(cli.output());
+
+    expect(json.ok).toBe(false);
+    expect(json.command).toBe("tools");
+    expect(json.error.message).toMatch(/Unknown tools command/i);
+    expect(json.help).toContain("agnet.ts tools");
   } finally {
     cli.kill();
   }
 });
-*/
 
