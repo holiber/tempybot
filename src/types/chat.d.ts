@@ -154,7 +154,7 @@ export declare namespace STC {
       getDescriptor(): Promise<Descriptor>;
 
       /** Live updates channel (safe-by-default). */
-      readonly channel: STC.Channel<Event>;
+      readonly channel: STC.Channel.Channel<Event>;
 
       /** Fetch latest/older/newer messages with pagination info. */
       fetchMessages(options?: FetchMessagesOptions): Promise<FetchMessagesResult>;
@@ -252,7 +252,7 @@ export declare namespace STC {
       /** Tier2: StatefulChat with local collection + sync. */
       export interface StatefulChat extends Chat {
         readonly kind: "stateful";
-        readonly messages: STC.Collection<Message>;
+        readonly messages: STC.Collection.Collection<Message>;
         sync(options?: { scope?: string }): Promise<{ added: number; updated: number; removed: number }>;
       }
 

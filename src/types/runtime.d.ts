@@ -68,7 +68,7 @@ export declare namespace STC {
        * Optional helpers that apply runtime defaults.
        * Reference implementations may provide these.
        */
-      createChannel?<T>(options?: STC.Channel.CreateOptions): STC.Channel<T>;
+      createChannel?<T>(options?: STC.Channel.CreateOptions): STC.Channel.Channel<T>;
       createDiagnosticsSink?(options?: STC.Diagnostics.CreateSinkOptions): STC.Diagnostics.Sink;
     }
 

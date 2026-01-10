@@ -66,7 +66,7 @@ export declare namespace STC {
      * Tier 1: in-memory STC.Collection.
      */
     export interface Registry {
-      readonly collection: STC.Collection<Record>;
+      readonly collection: STC.Collection.Collection<Record>;
 
       /** Find policy by id (helper). */
       getById(id: Id): Promise<Record | null>;

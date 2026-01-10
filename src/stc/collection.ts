@@ -1,89 +1,58 @@
-export type CollectionKey = string | number;
+import type { STC } from "../types/stc.js";
 
-export type AnyRecord = Record<string, unknown>;
+export type CollectionMeta<M extends Record<string, unknown> = Record<string, unknown>> = STC.Collection.Meta<M>;
+export type CollectionKey = STC.Collection.Key;
+export type AnyRecord = STC.Collection.AnyRecord;
+export type CollectionRecord<M extends CollectionMeta = CollectionMeta> = STC.Collection.Record<M>;
+export type CollectionKind = STC.Collection.Kind;
+export type CollectionOptions<
+  K extends CollectionKey = CollectionKey,
+  M extends CollectionMeta = CollectionMeta
+> = STC.Collection.Options<K, M>;
+export type TreeCollectionOptions<
+  K extends CollectionKey = CollectionKey,
+  M extends CollectionMeta = CollectionMeta
+> = STC.Collection.TreeOptions<K, M>;
+export type UpsertOp = STC.Collection.UpsertOp;
+export type UpsertResult<K extends CollectionKey> = STC.Collection.UpsertResult<K>;
+export type ICollection<
+  T extends CollectionRecord<M>,
+  K extends CollectionKey = CollectionKey,
+  M extends CollectionMeta = CollectionMeta
+> = STC.Collection.Collection<T, K, M>;
+export type ITreeCollection<
+  T extends CollectionRecord<M>,
+  K extends CollectionKey = CollectionKey,
+  M extends CollectionMeta = CollectionMeta
+> = STC.Collection.TreeCollection<T, K, M>;
 
-export type CollectionKind = "flat" | "tree";
-
-export interface CollectionOptions<K extends CollectionKey = CollectionKey> {
-  name?: string;
-  keyField?: string;
-  limit?: number;
-  autoKey?: boolean;
-  kind?: CollectionKind;
-}
-
-export interface TreeCollectionOptions<K extends CollectionKey = CollectionKey> extends CollectionOptions<K> {
-  kind: "tree";
-  parentField: string;
-}
-
-export interface UpsertResult<K extends CollectionKey> {
-  key: K;
-  created: boolean;
-  updated: boolean;
-}
-
-export interface ICollection<T extends AnyRecord, K extends CollectionKey = CollectionKey> {
-  readonly kind: CollectionKind;
-  readonly size: number;
-  readonly options: Readonly<CollectionOptions<K>>;
-
-  get(key: K): T | undefined;
-  has(key: K): boolean;
-  upsert(record: T & Record<string, unknown>): UpsertResult<K>;
-  delete(key: K): boolean;
-  clear(): void;
-  list(): T[];
-  values(): Iterable<T>;
-  keys(): Iterable<K>;
-}
-
-export interface ITreeCollection<
-  T extends AnyRecord & { [key: string]: K },
-  K extends CollectionKey = CollectionKey
-> extends ICollection<T, K> {
-  readonly kind: "tree";
-  getChildren(parentKey: K): T[];
-  getParent(key: K): T | undefined;
-}
-
-function defaultLimit(): number {
-  return 10_000;
-}
-
-function pickKey<K extends CollectionKey>(
-  record: Record<string, unknown>,
-  keyField: string
-): K | undefined {
+function inferKey<K extends CollectionKey>(record: Record<string, unknown>, keyField: string): K | undefined {
   const v = record[keyField] as K | undefined;
   if (v === undefined || v === null) return undefined;
   return v;
 }
 
-function normalizeKeyField(options?: CollectionOptions): string {
-  return options?.keyField ?? "id";
-}
-
-export class InMemoryCollection<T extends AnyRecord, K extends CollectionKey = CollectionKey>
-  implements ICollection<T, K>
+export class InMemoryCollection<
+  T extends CollectionRecord<M>,
+  K extends CollectionKey = CollectionKey,
+  M extends CollectionMeta = CollectionMeta
+> implements STC.Collection.Collection<T, K, M>
 {
   public readonly kind: CollectionKind = "flat";
-  public readonly options: Readonly<CollectionOptions<K>>;
+  public readonly meta?: M;
 
-  private readonly map = new Map<K, T>();
-  private autoInc = 0;
-  private readonly keyField: string;
+  protected readonly options: Readonly<CollectionOptions<K, M>>;
+  protected readonly map = new Map<K, T>();
+  protected readonly keyField?: string;
 
-  public constructor(options?: CollectionOptions<K>) {
+  public constructor(options?: CollectionOptions<K, M>) {
     this.options = {
       name: options?.name,
       keyField: options?.keyField,
-      limit: options?.limit ?? defaultLimit(),
-      autoKey: options?.autoKey ?? true,
-      kind: options?.kind ?? "flat"
+      meta: options?.meta
     };
-    this.kind = this.options.kind ?? "flat";
-    this.keyField = normalizeKeyField(this.options);
+    this.meta = options?.meta;
+    this.keyField = options?.keyField;
   }
 
   public get size(): number {
@@ -98,32 +67,19 @@ export class InMemoryCollection<T extends AnyRecord, K extends CollectionKey = C
     return this.map.has(key);
   }
 
-  public upsert(record: T & Record<string, unknown>): UpsertResult<K> {
-    const limit = this.options.limit ?? defaultLimit();
-    if (this.map.size >= limit) {
-      throw new Error(
-        `Collection limit exceeded${this.options.name ? ` (${this.options.name})` : ""}: ${limit}`
-      );
+  public upsert(record: T, key?: K): UpsertResult<K> {
+    const resolvedKey =
+      key ??
+      (this.keyField ? inferKey<K>(record as Record<string, unknown>, this.keyField) : undefined);
+
+    if (resolvedKey === undefined) {
+      const name = this.options.name ? ` (${this.options.name})` : "";
+      throw new Error(`Cannot upsert without key${name}`);
     }
 
-    let key = pickKey<K>(record as Record<string, unknown>, this.keyField);
-    if (key === undefined) {
-      if (!this.options.autoKey) {
-        throw new Error(
-          `Missing key field '${this.keyField}'${this.options.name ? ` for collection ${this.options.name}` : ""}`
-        );
-      }
-      // Best-effort key generation:
-      // - Tier1 spec does not mandate the generated key type.
-      // - We default to string keys for stability across JS runtimes.
-      this.autoInc += 1;
-      key = `${this.autoInc}` as unknown as K;
-      (record as any)[this.keyField] = key;
-    }
-
-    const existed = this.map.has(key);
-    this.map.set(key, record);
-    return { key, created: !existed, updated: existed };
+    const existed = this.map.has(resolvedKey);
+    this.map.set(resolvedKey, record);
+    return { key: resolvedKey, op: existed ? "update" : "create" };
   }
 
   public delete(key: K): boolean {
@@ -148,46 +104,51 @@ export class InMemoryCollection<T extends AnyRecord, K extends CollectionKey = C
 }
 
 export class InMemoryTreeCollection<
-  T extends AnyRecord & { [key: string]: K },
-  K extends CollectionKey = CollectionKey
-> extends InMemoryCollection<T, K> implements ITreeCollection<T, K> {
+  T extends CollectionRecord<M>,
+  K extends CollectionKey = CollectionKey,
+  M extends CollectionMeta = CollectionMeta
+> extends InMemoryCollection<T, K, M> implements STC.Collection.TreeCollection<T, K, M> {
   public override readonly kind: "tree" = "tree";
   private readonly parentField: string;
 
-  public constructor(options: TreeCollectionOptions<K>) {
-    super({ ...options, kind: "tree" });
+  public constructor(options: TreeCollectionOptions<K, M>) {
+    super(options);
     this.parentField = options.parentField;
   }
 
-  public getChildren(parentKey: K): T[] {
+  public childrenOf(parentKey: K): T[] {
     const out: T[] = [];
     for (const r of this.values()) {
-      const p = (r as any)[this.parentField] as K | undefined;
-      if (p === parentKey) out.push(r);
+      const parent = (r as any)[this.parentField] as K | undefined;
+      if (parent === parentKey) out.push(r);
     }
     return out;
   }
 
-  public getParent(key: K): T | undefined {
+  public parentOf(key: K): T | undefined {
     const self = this.get(key);
     if (!self) return undefined;
-    const p = (self as any)[this.parentField] as K | undefined;
-    if (p === undefined) return undefined;
-    return this.get(p);
+    const parent = (self as any)[this.parentField] as K | undefined;
+    if (parent === undefined) return undefined;
+    return this.get(parent);
   }
 }
 
-export class CollectionFactory {
-  public create<T extends AnyRecord, K extends CollectionKey = CollectionKey>(
-    options?: CollectionOptions<K>
-  ): InMemoryCollection<T, K> {
-    return new InMemoryCollection<T, K>(options);
+export class CollectionFactory implements STC.Collection.Factory {
+  public create<
+    T extends CollectionRecord<M>,
+    K extends CollectionKey = CollectionKey,
+    M extends CollectionMeta = CollectionMeta
+  >(options?: CollectionOptions<K, M>): STC.Collection.Collection<T, K, M> {
+    return new InMemoryCollection<T, K, M>(options);
   }
 
-  public createTree<T extends AnyRecord, K extends CollectionKey = CollectionKey>(
-    options: TreeCollectionOptions<K>
-  ): InMemoryTreeCollection<T & { [key: string]: K }, K> {
-    return new InMemoryTreeCollection<T & { [key: string]: K }, K>(options);
+  public createTree<
+    T extends CollectionRecord<M>,
+    K extends CollectionKey = CollectionKey,
+    M extends CollectionMeta = CollectionMeta
+  >(options: TreeCollectionOptions<K, M>): STC.Collection.TreeCollection<T, K, M> {
+    return new InMemoryTreeCollection<T, K, M>(options);
   }
 }
 

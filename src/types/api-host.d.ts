@@ -32,7 +32,7 @@ export declare namespace STC {
       requestId: STC.ApiClient.RequestId;
 
       /** Channel bound to this call (lifecycle/progress/logs). */
-      channel: STC.Channel<unknown>;
+      channel: STC.Channel.Channel<unknown>;
 
       /** Runtime reference. */
       runtime: STC.Runtime.Runtime;

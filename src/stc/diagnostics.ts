@@ -1,57 +1,18 @@
-import { CollectionFactory, type AnyRecord, type ICollection } from "./collection.js";
+import type { STC } from "../types/stc.js";
+import { CollectionFactory, type ICollection } from "./collection.js";
 import { ChannelFactory, type IChannel } from "./channel.js";
 
-export type DiagnosticsLevel = "error" | "warn" | "info" | "log" | "debug";
-export type DiagnosticsCode = string;
-export type DiagnosticsSource = string;
+export type DiagnosticsLevel = STC.Diagnostics.Level;
+export type DiagnosticsCode = STC.Diagnostics.Code;
+export type DiagnosticsSource = STC.Diagnostics.Source;
+export type DiagnosticsErrorInfo = STC.Diagnostics.ErrorInfo;
+export type DiagnosticsEvent = STC.Diagnostics.Event;
+export type DiagnosticsSink = STC.Diagnostics.Sink;
+export type DiagnosticsCreateSinkOptions = STC.Diagnostics.CreateSinkOptions;
+export type DiagnosticsContext = STC.Diagnostics.Context;
 
-export interface DiagnosticsErrorInfo {
-  name?: string;
-  message?: string;
-  stack?: string;
-  code?: string | number;
-}
-
-export interface DiagnosticsEvent extends AnyRecord {
-  id?: string;
-  level: DiagnosticsLevel;
-  message: string;
-  code?: DiagnosticsCode;
-  source?: DiagnosticsSource;
-  tsMs: number;
-  correlationId?: string;
-  details?: Record<string, unknown>;
-  error?: DiagnosticsErrorInfo;
-  tags?: string[];
-}
-
-export interface DiagnosticsSink {
-  readonly channel: IChannel<DiagnosticsEvent>;
-  readonly history?: ICollection<DiagnosticsEvent>;
-  emit(event: DiagnosticsEvent): Promise<void>;
-}
-
-export interface DiagnosticsCreateSinkOptions {
-  mode?: "dev" | "prod";
-  history?: {
-    enabled?: boolean;
-    maxEvents?: number;
-  };
-  defaults?: {
-    source?: DiagnosticsSource;
-    correlationId?: string;
-    tags?: string[];
-  };
-}
-
-export interface DiagnosticsContext {
-  emit(event: Omit<DiagnosticsEvent, "tsMs"> & Partial<Pick<DiagnosticsEvent, "tsMs">>): Promise<void>;
-  error(message: string, init?: Partial<DiagnosticsEvent>): Promise<void>;
-  warn(message: string, init?: Partial<DiagnosticsEvent>): Promise<void>;
-  info(message: string, init?: Partial<DiagnosticsEvent>): Promise<void>;
-  log(message: string, init?: Partial<DiagnosticsEvent>): Promise<void>;
-  debug(message: string, init?: Partial<DiagnosticsEvent>): Promise<void>;
-  with(defaults: DiagnosticsCreateSinkOptions["defaults"]): DiagnosticsContext;
+function createId(): string {
+  return `diag_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
 }
 
 export class InMemoryDiagnosticsSink implements DiagnosticsSink {
@@ -80,6 +41,7 @@ export class InMemoryDiagnosticsSink implements DiagnosticsSink {
 
     if (this.history) {
       try {
+        if (!merged.id) (merged as any).id = createId();
         this.history.upsert(merged);
       } catch {
         // Best-effort history; if caps are exceeded, still emit to channel.
@@ -147,9 +109,7 @@ export class DiagnosticsFactory {
     const history = historyEnabled
       ? collectionFactory.create<DiagnosticsEvent, string>({
           name: "diagnostics.history",
-          keyField: "id",
-          limit: options?.history?.maxEvents ?? (options?.mode === "dev" ? 10_000 : 100_000),
-          autoKey: true
+          keyField: "id"
         })
       : undefined;
 

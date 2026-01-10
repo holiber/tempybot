@@ -1,40 +1,11 @@
 import { ChannelFactory, type ChannelCreateOptions, type IChannel } from "./channel.js";
 import { CollectionFactory } from "./collection.js";
 import { DiagnosticsFactory, type DiagnosticsCreateSinkOptions, type DiagnosticsSink } from "./diagnostics.js";
+import type { STC } from "../types/stc.js";
 
-export type RuntimeMode = "dev" | "prod";
-
-export interface RuntimeConfig {
-  mode: RuntimeMode;
-  channel: {
-    bufferMs: number;
-    warnAtRatio: number;
-    maxSubscriptionsDev: number;
-    maxSubscriptionsProd: number;
-  };
-  diagnostics: {
-    historyEnabled: boolean;
-    maxEventsDev: number;
-    maxEventsProd: number;
-  };
-  collection: {
-    defaultLimit: number;
-    warnAtRatio: number;
-  };
-  fs?: {
-    workspace?: string;
-  };
-  features?: Record<string, boolean>;
-}
-
-export interface IRuntime {
-  readonly mode: RuntimeMode;
-  readonly config: Readonly<RuntimeConfig>;
-  nowMs(): number;
-
-  createChannel?<T>(options?: ChannelCreateOptions): IChannel<T>;
-  createDiagnosticsSink?(options?: DiagnosticsCreateSinkOptions): DiagnosticsSink;
-}
+export type RuntimeMode = STC.Runtime.Mode;
+export type RuntimeConfig = STC.Runtime.Config;
+export type IRuntime = STC.Runtime.Runtime;
 
 export function defaultRuntimeConfig(mode: RuntimeMode): RuntimeConfig {
   return {

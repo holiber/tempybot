@@ -109,6 +109,21 @@ export declare namespace STC {
       parentOf(key: K): T | undefined;
     }
 
+    /** Factory for creating collections (usually provided by Runtime/Workbench). */
+    export interface Factory {
+      create<
+        T extends Record<M>,
+        K extends Key = Key,
+        M extends Meta = Meta
+      >(options?: Options<K, M>): Collection<T, K, M>;
+
+      createTree<
+        T extends Record<M>,
+        K extends Key = Key,
+        M extends Meta = Meta
+      >(options: TreeOptions<K, M>): TreeCollection<T, K, M>;
+    }
+
     // ----------------------------
     // Proposal (Tier2+)
     // ----------------------------
