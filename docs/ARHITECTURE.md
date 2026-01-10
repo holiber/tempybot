@@ -47,6 +47,7 @@ Project layout (repository root):
 - **CLI**: provides `tempybot parse <file.agent.md> [--out <file.json>]` to compile definitions.
 - **Testing scaffold**: unit (Vitest), e2e (Playwright), and scenario (custom runner) tests.
 - **GitHub Pages publishing**: pages include a project landing page and scenario video pages.
+- **STC type specs diagram**: a Mermaid diagram for `src/types/*.d.ts` interface relationships (`docs/stc-types-diagram.md`).
 
 ## Commands
 
