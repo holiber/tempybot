@@ -1,120 +1,173 @@
+import { z } from "zod";
+
 /**
- * Minimal runtime schema helpers used by `src/stc/workbench.ts`.
+ * A small, typed schema DSL with reliable validation via pluggable backends.
+ * Default backend here is Zod (compile-to-zod + cache).
  *
- * Notes:
- * - This is intentionally small (not a full validation library).
- * - Schemas validate at runtime via `parse()` and carry basic metadata.
- * - The `.node` field is a lightweight descriptor that can be used for introspection.
+ * Goals:
+ * - Strong TypeScript inference
+ * - Stable introspection (AST) for CLI/docs
+ * - Reliable runtime validation (as reliable as Zod)
+ * - Ability to swap backend later (Valibot/Ajv/custom), without changing call-sites
  */
 
-export type SchemaNode =
-  | { kind: "string" }
-  | { kind: "array"; item: SchemaNode }
-  | { kind: "object"; shape: Record<string, SchemaNode> }
-  | { kind: "optional"; inner: SchemaNode }
-  | { kind: "literal"; value: unknown };
-
-export type SchemaMeta = {
+export type Meta = {
   description?: string;
   example?: unknown;
   deprecated?: boolean;
+  [k: string]: unknown;
 };
 
+export type Node =
+  | { kind: "string" }
+  | { kind: "number"; int?: boolean }
+  | { kind: "boolean" }
+  | { kind: "literal"; value: string | number | boolean | null }
+  | { kind: "object"; shape: Record<string, AnySchema> }
+  | { kind: "array"; element: AnySchema }
+  | { kind: "optional"; inner: AnySchema };
+
 export type Schema<T> = {
-  node: SchemaNode;
-  meta: SchemaMeta;
+  readonly node: Node;
+  readonly meta: Meta;
+
   parse(v: unknown): T;
 
-  /** attach a human description */
-  desc(description: string): Schema<T>;
-  /** attach an example value */
-  example(example: unknown): Schema<T>;
-  /** mark as deprecated */
-  deprecated(isDeprecated?: boolean): Schema<T>;
-  /** returns the node "kind" for debugging */
-  kind(): SchemaNode["kind"];
+  desc(text: string): Schema<T>;
+  example(v: unknown): Schema<T>;
+  deprecated(): Schema<T>;
+
+  /** Introspection helpers (optional convenience) */
+  kind(): Node["kind"];
 };
 
 export type AnySchema = Schema<any>;
+export type Infer<S extends AnySchema> = S extends Schema<infer T> ? T : never;
 
-function withMeta<T>(base: Schema<T>, patch: Partial<SchemaMeta>): Schema<T> {
-  const meta: SchemaMeta = { ...base.meta, ...patch };
-  return makeSchema(base.node, meta, base.parse);
+export type SchemaBackend = {
+  compile(schema: AnySchema): { parse(v: unknown): unknown };
+};
+
+let backend: SchemaBackend | null = null;
+
+/** Set backend globally (recommended). */
+export function setSchemaBackend(b: SchemaBackend) {
+  backend = b;
 }
 
-function makeSchema<T>(node: SchemaNode, meta: SchemaMeta, parse: (v: unknown) => T): Schema<T> {
-  const self: Schema<T> = {
-    node,
-    meta,
-    parse,
-    desc(description) {
-      return withMeta(self, { description });
-    },
-    example(example) {
-      return withMeta(self, { example });
-    },
-    deprecated(isDeprecated = true) {
-      return withMeta(self, { deprecated: isDeprecated });
-    },
-    kind() {
-      return node.kind;
+/** Default backend: Zod */
+export function zodBackend(): SchemaBackend {
+  const cache = new WeakMap<AnySchema, z.ZodTypeAny>();
+
+  const compileToZod = (schema: AnySchema): z.ZodTypeAny => {
+    const cached = cache.get(schema);
+    if (cached) return cached;
+
+    const n = schema.node;
+    let out: z.ZodTypeAny;
+
+    switch (n.kind) {
+      case "string":
+        out = z.string();
+        break;
+      case "number":
+        out = n.int ? z.number().int() : z.number();
+        break;
+      case "boolean":
+        out = z.boolean();
+        break;
+      case "literal":
+        out = z.literal(n.value as any);
+        break;
+      case "object": {
+        const shape: Record<string, z.ZodTypeAny> = {};
+        for (const k of Object.keys(n.shape)) shape[k] = compileToZod(n.shape[k]);
+        out = z.object(shape);
+        break;
+      }
+      case "array":
+        out = z.array(compileToZod(n.element));
+        break;
+      case "optional":
+        out = compileToZod(n.inner).optional();
+        break;
+      default:
+        throw new Error(`Unknown schema kind: ${(n as any).kind}`);
+    }
+
+    // Attach meta to Zod too (useful for debugging; our system doesn't rely on it).
+    out = out.meta?.(schema.meta) ?? out;
+
+    cache.set(schema, out);
+    return out;
+  };
+
+  return {
+    compile(schema) {
+      const zodSchema = compileToZod(schema);
+      return { parse: (v: unknown) => zodSchema.parse(v) };
     },
   };
-  return self;
 }
 
-export function str(): Schema<string> {
-  return makeSchema(
-    { kind: "string" },
-    {},
-    (v) => {
-      if (typeof v !== "string") throw new Error("Expected string");
-      return v;
-    }
-  );
+function ensureBackend(): SchemaBackend {
+  if (!backend) backend = zodBackend();
+  return backend;
 }
 
-export function opt<T>(inner: Schema<T>): Schema<T | undefined> {
-  return makeSchema(
-    { kind: "optional", inner: inner.node },
-    {},
-    (v) => {
-      if (v === undefined) return undefined;
-      return inner.parse(v);
-    }
-  );
+class BaseSchema<T> implements Schema<T> {
+  public readonly node: Node;
+  public readonly meta: Meta;
+
+  private compiled?: { parse(v: unknown): unknown };
+
+  constructor(node: Node, meta: Meta = {}) {
+    this.node = node;
+    this.meta = meta;
+  }
+
+  kind(): Node["kind"] {
+    return this.node.kind;
+  }
+
+  parse(v: unknown): T {
+    if (!this.compiled) this.compiled = ensureBackend().compile(this);
+    return this.compiled.parse(v) as T;
+  }
+
+  desc(text: string): Schema<T> {
+    return new BaseSchema<T>(this.node, { ...this.meta, description: text });
+  }
+
+  example(v: unknown): Schema<T> {
+    return new BaseSchema<T>(this.node, { ...this.meta, example: v });
+  }
+
+  deprecated(): Schema<T> {
+    return new BaseSchema<T>(this.node, { ...this.meta, deprecated: true });
+  }
 }
 
-export function arr<T>(item: Schema<T>): Schema<T[]> {
-  return makeSchema(
-    { kind: "array", item: item.node },
-    {},
-    (v) => {
-      if (!Array.isArray(v)) throw new Error("Expected array");
-      return v.map((x) => item.parse(x));
-    }
-  );
-}
+/** Builders (no prefix) */
+export const str = () => new BaseSchema<string>({ kind: "string" });
+export const num = () => new BaseSchema<number>({ kind: "number" });
+export const int = () => new BaseSchema<number>({ kind: "number", int: true });
+export const bool = () => new BaseSchema<boolean>({ kind: "boolean" });
 
-export function obj<S extends Record<string, AnySchema>>(
-  shape: S
-): Schema<{ [K in keyof S]: S[K] extends Schema<infer T> ? T : never }> {
-  const nodeShape: Record<string, SchemaNode> = {};
-  for (const k of Object.keys(shape)) nodeShape[k] = shape[k].node;
+export const lit = <T extends string | number | boolean | null>(value: T) =>
+  new BaseSchema<T>({ kind: "literal", value });
 
-  return makeSchema(
-    { kind: "object", shape: nodeShape },
-    {},
-    (v) => {
-      if (v === null || typeof v !== "object" || Array.isArray(v)) throw new Error("Expected object");
-      const rec = v as Record<string, unknown>;
-      const out: Record<string, unknown> = {};
-      for (const k of Object.keys(shape)) {
-        // If missing, pass `undefined` through (works with `opt(...)`).
-        const raw = Object.prototype.hasOwnProperty.call(rec, k) ? rec[k] : undefined;
-        out[k] = shape[k].parse(raw);
-      }
-      return out as any;
-    }
-  );
-}
+export const obj = <S extends Record<string, AnySchema>>(shape: S) => {
+  type Out = { [K in keyof S]: Infer<S[K]> };
+  return new BaseSchema<Out>({ kind: "object", shape });
+};
+
+export const arr = <E extends AnySchema>(element: E) => {
+  type Out = Array<Infer<E>>;
+  return new BaseSchema<Out>({ kind: "array", element });
+};
+
+export const opt = <I extends AnySchema>(inner: I) => {
+  type Out = Infer<I> | undefined;
+  return new BaseSchema<Out>({ kind: "optional", inner });
+};

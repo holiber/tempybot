@@ -238,7 +238,9 @@ function isOp(x: any): x is AnyOp {
 
 const WB_REF = Symbol("wb.moduleRef");
 
-export type ApiDef = Record<string, AnyOp | ApiDef | ModuleRef<any>>;
+export interface ApiDef {
+  [key: string]: AnyOp | ApiDef | ModuleRef<any>;
+}
 export type ModuleFactory<D extends ApiDef> = (ctx: ModuleCtx) => { api: D };
 
 type ApiFromDef<D> =

@@ -6,7 +6,8 @@
     "rootDir": "./src",
     "sourceMap": true,
     "declaration": false,
-    "declarationMap": false
+    "declarationMap": false,
+    "allowImportingTsExtensions": false
   },
   "include": ["src"]
 }

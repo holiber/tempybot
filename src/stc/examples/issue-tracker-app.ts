@@ -1,6 +1,6 @@
 // issueTracker.ts
-import { module, procedure } from "./workbench-light";
-import { obj, opt, str, arr } from "./schema";
+import { module, procedure } from "../workbench.js";
+import { obj, opt, str, arr } from "../schema.js";
 
 export const issueTracker = module((ctx) => {
   let counter = 0;
