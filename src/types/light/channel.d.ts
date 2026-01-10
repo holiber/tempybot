@@ -5,39 +5,70 @@ export declare namespace STC {
     export type Id = string;
     export type Unsubscribe = () => void;
 
-    /** Generic event. Tier1: only data + optional system. */
-    export type Event<T = unknown> =
-      | { kind: "data"; data: T; meta?: Record<string, unknown> }
-      | { kind: "system"; type: string; payload?: unknown; meta?: Record<string, unknown> };
+    export type Meta<M extends Record<string, unknown> = Record<string, unknown>> = M;
 
-    export interface CreateOptions {
+    export type Event<T = unknown, M extends Meta = Meta> =
+      | { kind: "data"; data: T; meta?: M }
+      | { kind: "system"; type: string; payload?: unknown; meta?: M };
+
+    export interface Capabilities {
+      canRead: boolean;
+      canWrite: boolean;
+    }
+
+    export interface CreateOptions<M extends Meta = Meta> {
       id?: Id;
+      caps?: Partial<Capabilities>; // defaults resolved by impl
+      meta?: M;
       signal?: AbortSignal;
-      meta?: Record<string, unknown>;
     }
 
     export interface SubscribeOptions {
       signal?: AbortSignal;
     }
 
-    export interface Channel<T = unknown> {
-      id: Id;
+    /**
+     * Channel = streaming primitive.
+     * canRead / canWrite define allowed directions.
+     */
+    export interface Channel<
+      T = unknown,
+      M extends Meta = Meta
+    > {
+      readonly id: Id;
 
-      /** Subscribe to events; must be safe to call multiple times. */
+      /** Capability snapshot (may be best-effort). */
+      readonly caps: Capabilities;
+
+      /** Free-form channel metadata. */
+      readonly meta?: M;
+
+      /**
+       * Subscribe to events.
+       * Must throw or no-op if canRead === false.
+       */
       subscribe(
-        handler: (event: Event<T>) => void,
+        handler: (event: Event<T, M>) => void,
         options?: SubscribeOptions
       ): Unsubscribe;
 
-      /** Send a data event. */
-      send(data: T, meta?: Record<string, unknown>): Promise<void> | void;
+      /**
+       * Send event into channel.
+       * Must reject if canWrite === false.
+       */
+      send(data: T, meta?: M): Promise<void> | void;
 
-      /** Close channel (idempotent). Must cleanup subscriptions. */
+      /**
+       * Close channel (idempotent).
+       * Must cleanup subscriptions.
+       */
       close(info?: { code?: string | number; reason?: string }): Promise<void> | void;
     }
 
     export interface Factory {
-      create<T = unknown>(options?: CreateOptions): Channel<T>;
+      create<T = unknown, M extends Meta = Meta>(
+        options?: CreateOptions<M>
+      ): Channel<T, M>;
     }
   }
 }
