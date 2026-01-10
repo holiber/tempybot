@@ -2,27 +2,25 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import fg from "fast-glob";
 import { parseAgentMd } from "./agent/parse-agent-md.js";
 
 type ParsedArgs = {
-  command: "agent-parse" | "help" | "unknown";
-  globs: string[];
-  stdout: boolean;
+  command: "parse" | "help" | "unknown";
+  inputPath?: string;
+  outPath?: string;
   help: boolean;
 };
 
 function printHelp(): void {
   const text = `
-tempybot agent parse <glob...> [--stdout]
+tempybot parse <file.agent.md> [--out <file.json>]
 
-Discovers .agent.md files, parses them, and writes JSON next to inputs
-by default (or prints JSON to stdout with --stdout).
+Parses a single .agent.md file and prints formatted JSON to stdout.
+If --out is provided, it also writes the JSON to that path.
 
 Examples:
-  tempybot agent parse "**/*.agent.md"
-  tempybot agent parse "examples/*.agent.md"
-  tempybot agent parse "**/*.agent.md" --stdout
+  tempybot parse "./docs/agent-examples/python-data-cleaner.agent.md"
+  tempybot parse "./docs/agent-examples/python-data-cleaner.agent.md" --out "./python-data-cleaner.agent.json"
 `.trim();
   // eslint-disable-next-line no-console
   console.log(text);
@@ -30,91 +28,66 @@ Examples:
 
 function parseArgs(argv: string[]): ParsedArgs {
   const help = argv.includes("-h") || argv.includes("--help");
-  const stdout = argv.includes("--stdout");
+  let outPath: string | undefined;
+  const positional: string[] = [];
 
-  const positional = argv.filter((a) => !a.startsWith("-"));
-
-  if (positional.length === 0) {
-    return { command: "help", globs: [], stdout, help: true };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (a === "--out" || a === "-o") {
+      outPath = argv[i + 1];
+      i++;
+      continue;
+    }
+    if (a.startsWith("-")) continue;
+    positional.push(a);
   }
 
-  if (positional[0] === "agent" && positional[1] === "parse") {
-    const globs = positional.slice(2);
-    return { command: "agent-parse", globs, stdout, help };
+  if (positional.length === 0) {
+    return { command: "help", help: true };
+  }
+
+  if (positional[0] === "parse") {
+    const inputPath = positional[1];
+    return { command: "parse", inputPath, outPath, help };
   }
 
   if (positional[0] === "help") {
-    return { command: "help", globs: [], stdout, help: true };
+    return { command: "help", help: true };
   }
 
-  return { command: "unknown", globs: [], stdout, help };
+  return { command: "unknown", help };
 }
 
 function toPosixPath(p: string): string {
   return p.split(path.sep).join("/");
 }
 
-async function discoverAgentMdFiles(globs: string[], cwd: string): Promise<string[]> {
-  const patterns = globs.length ? globs : ["**/*.agent.md"];
-
-  const matches = await fg(patterns, {
-    cwd,
-    absolute: true,
-    onlyFiles: true,
-    unique: true,
-    dot: false,
-    followSymbolicLinks: true,
-    ignore: ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/artifacts/**"],
-  });
-
-  return matches.filter((p) => p.endsWith(".agent.md")).sort();
-}
-
-function jsonOutPath(agentMdPath: string): string {
-  if (agentMdPath.endsWith(".agent.md")) {
-    return agentMdPath.replace(/\.agent\.md$/, ".agent.json");
-  }
-  return `${agentMdPath}.json`;
-}
-
 async function writeJsonFile(outPath: string, data: unknown): Promise<void> {
+  await fs.mkdir(path.dirname(outPath), { recursive: true });
   await fs.writeFile(outPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
 }
 
-async function runAgentParse(globs: string[], opts: { stdout: boolean }): Promise<number> {
+async function runAgentParse(inputPath: string, opts: { outPath?: string }): Promise<number> {
   const cwd = process.cwd();
-  const files = await discoverAgentMdFiles(globs, cwd);
-  if (files.length === 0) {
-    // eslint-disable-next-line no-console
-    console.error(`No '*.agent.md' files found (cwd=${toPosixPath(cwd)}).`);
-    return 2;
-  }
+  const inputAbs = path.isAbsolute(inputPath) ? inputPath : path.resolve(cwd, inputPath);
 
-  let hadErrors = false;
+  try {
+    const def = await parseAgentMd(inputAbs);
 
-  for (const file of files) {
-    try {
-      const def = await parseAgentMd(file);
-
-      if (opts.stdout) {
-        // NDJSON for stable multi-file output: 1 JSON object per file.
-        // eslint-disable-next-line no-console
-        console.log(JSON.stringify({ file: toPosixPath(path.relative(cwd, file)), definition: def }));
-      } else {
-        const out = jsonOutPath(file);
-        await writeJsonFile(out, def);
-        // eslint-disable-next-line no-console
-        console.log(`${toPosixPath(path.relative(cwd, file))} -> ${toPosixPath(path.relative(cwd, out))}`);
-      }
-    } catch (err) {
-      hadErrors = true;
-      const msg = err instanceof Error ? err.message : String(err);
-      // eslint-disable-next-line no-console
-      console.error(`ERROR ${toPosixPath(path.relative(cwd, file))}: ${msg}`);
+    if (opts.outPath) {
+      const outAbs = path.isAbsolute(opts.outPath) ? opts.outPath : path.resolve(cwd, opts.outPath);
+      await writeJsonFile(outAbs, def);
     }
-  }
 
-  return hadErrors ? 1 : 0;
+    // eslint-disable-next-line no-console
+    console.log(JSON.stringify(def, null, 2));
+    return 0;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // eslint-disable-next-line no-console
+    console.error(msg);
+    return 1;
+  }
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
@@ -125,13 +98,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     return 0;
   }
 
-  if (args.command !== "agent-parse") {
+  if (args.command !== "parse") {
     // eslint-disable-next-line no-console
-    console.error(`Unknown command. See: tempybot agent parse --help`);
+    console.error(`Unknown command. See: tempybot parse --help`);
     return 2;
   }
 
-  return await runAgentParse(args.globs, { stdout: args.stdout });
+  if (!args.inputPath) {
+    // eslint-disable-next-line no-console
+    console.error(`Missing input file path. See: tempybot parse --help`);
+    return 2;
+  }
+
+  return await runAgentParse(args.inputPath, { outPath: args.outPath });
 }
 
 function isEntrypoint(): boolean {

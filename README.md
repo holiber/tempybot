@@ -7,25 +7,36 @@
 
 ## Usage examples
 
-```bash
-# install dependencies
-npm ci
+### Parse agent markdown in a JS project
+
+```js
+import { parseAgentMdFromString } from "tempybot";
+
+const md = `
+# My Agent
+
+## System
+You are a helpful assistant.
+
+## Rules
+- Be concise.
+`;
+
+const definition = parseAgentMdFromString(md);
+console.log(definition);
 ```
 
-```bash
-# run unit + e2e tests
-npm test
-```
+### CLI: parse a file and print JSON to stdout
 
 ```bash
-# run scenario smoke tests (fast) and list available scenarios
-npm run test:scenario:smoke
-npm run test:scenario:list
+tempybot parse "./docs/agent-examples/python-data-cleaner.agent.md"
 ```
 
+### CLI: also write JSON to a file
+
 ```bash
-# build the CLI and parse agent definitions
-npm run build
-node dist/cli.js agent parse "docs/agent-examples/*.agent.md" --stdout
+tempybot parse "./docs/agent-examples/python-data-cleaner.agent.md" --out "./python-data-cleaner.agent.json"
 ```
+
+If parsing fails, the CLI prints the reason to stderr and exits with a non-zero code.
 

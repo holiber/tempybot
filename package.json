@@ -8,6 +8,11 @@
   "engines": {
     "node": ">=20"
   },
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./agent/parse-agent-md": "./dist/agent/parse-agent-md.js"
+  },
   "bin": {
     "tempybot": "./dist/cli.js"
   },

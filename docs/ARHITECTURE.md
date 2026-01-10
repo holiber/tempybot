@@ -44,7 +44,7 @@ Project layout (repository root):
 ## What this repo contains
 
 - **Agent definition parser**: reads `*.agent.md` files and produces a typed JSON `AgentDefinition`.
-- **CLI**: provides `tempybot agent parse <glob...> [--stdout]` to compile definitions.
+- **CLI**: provides `tempybot parse <file.agent.md> [--out <file.json>]` to compile definitions.
 - **Testing scaffold**: unit (Vitest), e2e (Playwright), and scenario (custom runner) tests.
 - **GitHub Pages publishing**: pages include a project landing page and scenario video pages.
 
