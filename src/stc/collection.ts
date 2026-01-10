@@ -30,7 +30,7 @@ export interface ICollection<T extends AnyRecord, K extends CollectionKey = Coll
 
   get(key: K): T | undefined;
   has(key: K): boolean;
-  upsert(record: T & Partial<Record<string, K>>): UpsertResult<K>;
+  upsert(record: T & Record<string, unknown>): UpsertResult<K>;
   delete(key: K): boolean;
   clear(): void;
   list(): T[];
@@ -98,7 +98,7 @@ export class InMemoryCollection<T extends AnyRecord, K extends CollectionKey = C
     return this.map.has(key);
   }
 
-  public upsert(record: T & Partial<Record<string, K>>): UpsertResult<K> {
+  public upsert(record: T & Record<string, unknown>): UpsertResult<K> {
     const limit = this.options.limit ?? defaultLimit();
     if (this.map.size >= limit) {
       throw new Error(
@@ -113,9 +113,11 @@ export class InMemoryCollection<T extends AnyRecord, K extends CollectionKey = C
           `Missing key field '${this.keyField}'${this.options.name ? ` for collection ${this.options.name}` : ""}`
         );
       }
-      // Best-effort key generation: prefer numeric keys, otherwise string keys.
+      // Best-effort key generation:
+      // - Tier1 spec does not mandate the generated key type.
+      // - We default to string keys for stability across JS runtimes.
       this.autoInc += 1;
-      key = (typeof (0 as unknown as K) === "number" ? (this.autoInc as any) : `${this.autoInc}`) as K;
+      key = `${this.autoInc}` as unknown as K;
       (record as any)[this.keyField] = key;
     }
 
