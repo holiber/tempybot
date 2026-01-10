@@ -1,6 +1,8 @@
 import * as pty from "node-pty";
 import { chromium, devices, type Browser, type BrowserContext, type Page } from "playwright";
 import { performance } from "node:perf_hooks";
+import fs from "node:fs";
+import path from "node:path";
 
 /**
  * SCENARIO_MODE:
@@ -32,49 +34,64 @@ function isScenarioTimingsEnabled(): boolean {
   return process.env.SCENARIO_TIMINGS === "1";
 }
 
+function timingsFilePath(): string | null {
+  const p = process.env.SCENARIO_TIMINGS_FILE;
+  return p && p.trim() ? p.trim() : null;
+}
+
+function computeScenarioTimingsSummary() {
+  const samples = timingsStore.userSleepSamples;
+  const actuals = samples.map((s) => s.actualMs);
+  const requested = samples.map((s) => s.requestedMs);
+
+  const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+  const min = (xs: number[]) => Math.min(...xs);
+  const max = (xs: number[]) => Math.max(...xs);
+  const avg = (xs: number[]) => sum(xs) / xs.length;
+
+  const reqSum = requested.length ? sum(requested) : 0;
+  const actSum = actuals.length ? sum(actuals) : 0;
+  const drift = actSum - reqSum;
+
+  return {
+    kind: "scenario-timings",
+    pid: process.pid,
+    userSleep: {
+      calls: samples.length,
+      requested_ms_total: Number(reqSum.toFixed(0)),
+      actual_ms_total: Number(actSum.toFixed(0)),
+      drift_ms_total: Number(drift.toFixed(0)),
+      actual_ms_min: samples.length ? Number(min(actuals).toFixed(1)) : null,
+      actual_ms_avg: samples.length ? Number(avg(actuals).toFixed(1)) : null,
+      actual_ms_max: samples.length ? Number(max(actuals).toFixed(1)) : null,
+    },
+  } as const;
+}
+
+function writeTimingsSummaryBestEffort(): void {
+  const outPath = timingsFilePath();
+  if (!outPath) return;
+  try {
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, JSON.stringify(computeScenarioTimingsSummary(), null, 2), "utf8");
+  } catch {
+    // Best-effort only: avoid failing scenarios due to reporting.
+  }
+}
+
 function registerScenarioTimingsSummary(): void {
   if (SCENARIO_MODE !== "userlike") return;
   if (!isScenarioTimingsEnabled()) return;
   if (timingsStore.registered) return;
   timingsStore.registered = true;
 
-  process.once("beforeExit", () => {
+  // Vitest may terminate workers via process.exit(), which does not emit "beforeExit".
+  // Use "exit" to ensure the summary is printed deterministically.
+  process.once("exit", () => {
     if (timingsStore.printed) return;
     timingsStore.printed = true;
 
-    const samples = timingsStore.userSleepSamples;
-    if (!samples.length) {
-      // Keep this stable for log scraping.
-      // eslint-disable-next-line no-console
-      console.log("SCENARIO_TIMINGS userSleep calls=0");
-      return;
-    }
-
-    const actuals = samples.map((s) => s.actualMs);
-    const requested = samples.map((s) => s.requestedMs);
-
-    const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
-    const min = (xs: number[]) => Math.min(...xs);
-    const max = (xs: number[]) => Math.max(...xs);
-    const avg = (xs: number[]) => sum(xs) / xs.length;
-
-    const reqSum = sum(requested);
-    const actSum = sum(actuals);
-    const drift = actSum - reqSum;
-
-    // eslint-disable-next-line no-console
-    console.log(
-      [
-        "SCENARIO_TIMINGS",
-        `userSleep calls=${samples.length}`,
-        `requested_ms_total=${reqSum.toFixed(0)}`,
-        `actual_ms_total=${actSum.toFixed(0)}`,
-        `drift_ms_total=${drift.toFixed(0)}`,
-        `actual_ms_min=${min(actuals).toFixed(1)}`,
-        `actual_ms_avg=${avg(actuals).toFixed(1)}`,
-        `actual_ms_max=${max(actuals).toFixed(1)}`,
-      ].join(" ")
-    );
+    writeTimingsSummaryBestEffort();
   });
 }
 
@@ -96,6 +113,7 @@ export async function userSleep(ms = 800): Promise<void> {
   const actualMs = performance.now() - started;
   if (isScenarioTimingsEnabled()) {
     timingsStore.userSleepSamples.push({ requestedMs: ms, actualMs });
+    writeTimingsSummaryBestEffort();
   }
 }
 
