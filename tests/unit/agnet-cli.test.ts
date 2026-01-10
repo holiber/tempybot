@@ -63,7 +63,7 @@ describe("agnet.ts CLI (unit)", () => {
     expect(json.templates).toEqual(["agents/repoboss.agent.md"]);
   });
 
-  it("run --world prints World snapshot JSON (fixture)", () => {
+  it("run --world prints Nothing to do when no /myagent commands (fixture)", () => {
     const template = path.join(process.cwd(), "agents", "repoboss.agent.md");
     const idemPath = makeTempFilePath("idempotency");
     const res = runAgnet(
@@ -74,25 +74,56 @@ describe("agnet.ts CLI (unit)", () => {
       }
     );
     expect(res.code, combinedOutput(res)).toBe(0);
-    const json = parseJsonStdout<{ items: Array<{ kind: string; meta?: Record<string, unknown> }>; ts: string }>(res);
-    expect(Array.isArray(json.items)).toBe(true);
-    expect(json.items.length).toBe(2);
-    expect(json.items[0]!.kind).toBe("comment");
-    expect((json.items[0]!.meta as any)?.repo).toBeTruthy();
-    expect((json.items[0]!.meta as any)?.commentId).toBeTruthy();
+    const json = parseJsonStdout<{ ok: true; command: "run"; result: "nothing"; message: string }>(res);
+    expect(json.ok).toBe(true);
+    expect(json.command).toBe("run");
+    expect(json.result).toBe("nothing");
+    expect(json.message).toContain("Nothing to do");
+  });
 
-    // Idempotency: rerunning with the same store should be a no-op.
-    const res2 = runAgnet(
+  it("run --world prints Found command when /myagent command exists (fixture)", () => {
+    const template = path.join(process.cwd(), "agents", "repoboss.agent.md");
+    const idemPath = makeTempFilePath("idempotency");
+    const res = runAgnet(
       ["--json", "--templates", template, "run", "--world"],
       {
-        AGNET_GH_FIXTURE_PATH: "fixtures/gh_issue_comments.json",
+        AGNET_GH_FIXTURE_PATH: "fixtures/gh_issue_comments_myagent_resolve.json",
         AGNET_IDEMPOTENCY_PATH: idemPath,
       }
     );
+    expect(res.code, combinedOutput(res)).toBe(0);
+    const json = parseJsonStdout<{
+      ok: true;
+      command: "run";
+      result: "wake";
+      message: string;
+      foundCommand: { agent: string; name: string; args: string[]; commentId: number };
+    }>(res);
+    expect(json.ok).toBe(true);
+    expect(json.command).toBe("run");
+    expect(json.result).toBe("wake");
+    expect(json.message).toContain("Found command: resolve");
+    expect(json.foundCommand.agent).toBe("myagent");
+    expect(json.foundCommand.name).toBe("resolve");
+    expect(Array.isArray(json.foundCommand.args)).toBe(true);
+    expect(json.foundCommand.commentId).toBeTruthy();
+  });
+
+  it("run --world idempotency prevents rerun for same commentId (same store)", () => {
+    const template = path.join(process.cwd(), "agents", "repoboss.agent.md");
+    const idemPath = makeTempFilePath("idempotency");
+    const env = {
+      AGNET_GH_FIXTURE_PATH: "fixtures/gh_issue_comments_myagent_resolve.json",
+      AGNET_IDEMPOTENCY_PATH: idemPath,
+    };
+
+    const res1 = runAgnet(["--json", "--templates", template, "run", "--world"], env);
+    expect(res1.code, combinedOutput(res1)).toBe(0);
+    expect(res1.stdout).toContain("Found command:");
+
+    const res2 = runAgnet(["--json", "--templates", template, "run", "--world"], env);
     expect(res2.code, combinedOutput(res2)).toBe(0);
-    const json2 = parseJsonStdout<{ items: Array<unknown> }>(res2);
-    expect(Array.isArray(json2.items)).toBe(true);
-    expect(json2.items.length).toBe(0);
+    expect(res2.stdout).toContain("Nothing to do");
   });
 
   it("missing --templates path fails with a helpful error", () => {

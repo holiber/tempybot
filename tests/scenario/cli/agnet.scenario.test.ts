@@ -73,7 +73,7 @@ test("agnet doctor prints templates count (json)", async () => {
   }
 });
 
-test("agnet run --world prints World snapshot (json, fixture)", async () => {
+test("agnet run --world prints Nothing to do when no /myagent commands (json, fixture)", async () => {
   const script = path.join(process.cwd(), "scripts", "agnet.ts");
   const template = path.join(process.cwd(), "agents", "repoboss.agent.md");
 
@@ -93,15 +93,16 @@ test("agnet run --world prints World snapshot (json, fixture)", async () => {
     expect(exitCode).toBe(0);
 
     const json = parseLastJsonObject<{
-      items: Array<{ kind: string; meta?: Record<string, unknown> }>;
-      ts: string;
+      ok: true;
+      command: "run";
+      result: "nothing";
+      message: string;
     }>(cli.output());
 
-    expect(Array.isArray(json.items)).toBe(true);
-    expect(json.items.length).toBeGreaterThan(0);
-    expect(json.items[0]!.kind).toBe("comment");
-    expect((json.items[0]!.meta as any)?.repo).toBeTruthy();
-    expect((json.items[0]!.meta as any)?.commentId).toBeTruthy();
+    expect(json.ok).toBe(true);
+    expect(json.command).toBe("run");
+    expect(json.result).toBe("nothing");
+    expect(json.message).toContain("Nothing to do");
   } finally {
     cli.kill();
     process.env.AGNET_GH_FIXTURE_PATH = prevFixture;
