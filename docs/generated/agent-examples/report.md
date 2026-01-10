@@ -4,8 +4,8 @@ This folder is generated from `docs/agent-examples/*.agent.md` using the reposit
 
 ## Summary
 
-- Source files: 10
-- Output files: 10 JSON + manifest + report
+- Source files: 11
+- Output files: 11 JSON + manifest + report
 
 ## Data preservation notes
 
@@ -17,6 +17,7 @@ This folder is generated from `docs/agent-examples/*.agent.md` using the reposit
 
 | Source | Title | Status | Commands | System chars | Rules chars | Tools chars |
 |--------|-------|--------|----------|--------------|------------|------------|
+| claude-style-commands.agent.md | Agent with commands | active | 2 | 28 | 0 | 10 |
 | codebase-migration-planner.agent.md | Codebase Migration Planner | active | 2 | 260 | 365 | 520 |
 | customer-support-triage.agent.md | Customer Support Triage Agent | active | 2 | 236 | 389 | 417 |
 | etl-pipeline-debugger.agent.md | ETL Pipeline Debugger | active | 1 | 205 | 350 | 328 |
@@ -30,6 +31,7 @@ This folder is generated from `docs/agent-examples/*.agent.md` using the reposit
 
 ## Per-file notes
 
+- **claude-style-commands.agent.md**: frontmatter present; description present; commands=2
 - **codebase-migration-planner.agent.md**: frontmatter present; description empty (no paragraph fallback); required.startup=analyzeRepo; recommended extras: audience; commands=2
 - **customer-support-triage.agent.md**: frontmatter present; description empty (no paragraph fallback); commands=2
 - **etl-pipeline-debugger.agent.md**: frontmatter present; description empty (no paragraph fallback); commands=1

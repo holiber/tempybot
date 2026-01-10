@@ -593,6 +593,156 @@ function extractNamedSections(content: string, tree: Root): Record<SectionName, 
   return out;
 }
 
+function extractCommandsFromMarkdown(content: string): AgentCommand[] {
+  const lines = content.split(/\r?\n/);
+  const lineStartOffsets: number[] = [];
+  {
+    let offset = 0;
+    for (let i = 0; i < lines.length; i++) {
+      lineStartOffsets.push(offset);
+      // +1 for the newline that was removed by split (assume '\n' in original content; offsets are approximate for '\r\n')
+      offset += lines[i]!.length + 1;
+    }
+  }
+
+  function lineMatchesAtxHeading(line: string, depth: number, text: string): boolean {
+    const re = new RegExp(String.raw`^\s*${"#".repeat(depth)}\s+${text}\s*$`, "i");
+    return re.test(line);
+  }
+
+  const commandsLineIdx = lines.findIndex((l) => lineMatchesAtxHeading(l, 2, "commands"));
+  if (commandsLineIdx === -1) return [];
+
+  const sectionStartOffset = (lineStartOffsets[commandsLineIdx] ?? 0) + lines[commandsLineIdx]!.length + 1;
+  const sectionEndLineIdx = (() => {
+    for (let i = commandsLineIdx + 1; i < lines.length; i++) {
+      const l = lines[i]!;
+      if (/^\s*#{1,2}\s+\S/.test(l)) return i;
+    }
+    return lines.length;
+  })();
+  const sectionEndOffset = sectionEndLineIdx < lines.length ? lineStartOffsets[sectionEndLineIdx]! : content.length;
+
+  const commandLineIdxs: Array<{ idx: number; name: string }> = [];
+  for (let i = commandsLineIdx + 1; i < sectionEndLineIdx; i++) {
+    const m = lines[i]!.match(/^\s*###\s+(.+?)\s*$/);
+    if (m) commandLineIdxs.push({ idx: i, name: m[1]!.trim() });
+  }
+
+  function parseLeadingCommandFrontmatterBlock(s: string): { data: Record<string, unknown>; body: string } {
+    const firstNonWsIdx = s.search(/\S/);
+    if (firstNonWsIdx === -1) return { data: {}, body: "" };
+    const rest = s.slice(firstNonWsIdx);
+    const ls = rest.split(/\r?\n/);
+    if (ls.length === 0 || ls[0]!.trim() !== "---") return { data: {}, body: s };
+
+    const closeIdx = (() => {
+      for (let i = 1; i < ls.length; i++) {
+        if (ls[i]!.trim() === "---") return i;
+      }
+      return -1;
+    })();
+    if (closeIdx === -1) {
+      throw new Error(`Invalid command frontmatter: missing closing '---'.`);
+    }
+
+    // Claude-style command frontmatter is "YAML-ish" but commonly uses values like:
+    //   argument-hint: [pr-number] [priority] [assignee]
+    // which is not valid YAML. To be robust, parse it as simple "key: value" lines
+    // with string values.
+    const rawText = ls.slice(1, closeIdx).join("\n");
+    const parsed: Record<string, unknown> = {};
+    for (const line of rawText.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const m = trimmed.match(/^([^:]+):\s*(.*)$/);
+      if (!m) {
+        throw new Error(`Invalid command frontmatter: expected 'key: value' (got '${trimmed}').`);
+      }
+      const key = m[1]!.trim();
+      const value = m[2]!.trim();
+      if (!key) {
+        throw new Error(`Invalid command frontmatter: key must be non-empty.`);
+      }
+      parsed[key] = value;
+    }
+
+    const body = ls.slice(closeIdx + 1).join("\n");
+    return { data: parsed, body };
+  }
+
+  const out: AgentCommand[] = [];
+
+  for (let i = 0; i < commandLineIdxs.length; i++) {
+    const { idx: cmdLineIdx, name } = commandLineIdxs[i]!;
+    if (!name) {
+      throw new Error(`Invalid command heading under '## Commands': name must be non-empty.`);
+    }
+
+    const cmdStartOffset = (lineStartOffsets[cmdLineIdx] ?? 0) + lines[cmdLineIdx]!.length + 1;
+    const nextCmdLineIdx = commandLineIdxs[i + 1]?.idx;
+    const cmdEndOffset =
+      nextCmdLineIdx !== undefined ? lineStartOffsets[nextCmdLineIdx]! : sectionEndOffset;
+
+    const rawBlock = content.slice(cmdStartOffset, cmdEndOffset);
+
+    let parsedData: Record<string, unknown>;
+    let bodyAfterFrontmatter: string;
+    try {
+      const parsed = parseLeadingCommandFrontmatterBlock(rawBlock);
+      parsedData = parsed.data;
+      bodyAfterFrontmatter = parsed.body;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(`Invalid command '${name}': ${msg}`);
+    }
+
+    const fm = lowercaseKeysDeep(parsedData) as Record<string, unknown>;
+    const description = getStringStrict({ key: "description", v: fm.description });
+
+    if (!description) {
+      throw new Error(`Invalid command '${name}': missing required frontmatter 'description'.`);
+    }
+
+    const argumentHint = (fm as Record<string, unknown>)["argument-hint"];
+    if (argumentHint !== undefined) {
+      if (typeof argumentHint === "string") {
+        if (argumentHint.trim().length === 0) {
+          throw new Error(`Invalid command '${name}': frontmatter 'argument-hint' must be non-empty if provided.`);
+        }
+      } else if (Array.isArray(argumentHint)) {
+        if (argumentHint.some((x) => typeof x !== "string" || x.trim().length === 0)) {
+          throw new Error(
+            `Invalid command '${name}': frontmatter 'argument-hint' expected string[] of non-empty strings.`,
+          );
+        }
+      } else {
+        throw new Error(`Invalid command '${name}': frontmatter 'argument-hint' expected a string or string[].`);
+      }
+    }
+
+    const extras: Record<string, unknown> = { ...fm };
+    delete extras.name;
+    delete extras.description;
+    delete extras.body;
+
+    const bodyTrimmed = bodyAfterFrontmatter.trim();
+    if (!bodyTrimmed) {
+      throw new Error(`Invalid command '${name}': body must be non-empty.`);
+    }
+    const body = bodyTrimmed.endsWith("\n") ? bodyTrimmed : `${bodyTrimmed}\n`;
+
+    out.push({
+      name,
+      description,
+      body,
+      ...extras,
+    });
+  }
+
+  return out;
+}
+
 function extractTitleAndDescriptionFallbacks(tree: Root): { title?: string; description?: string } {
   const rootChildren = Array.isArray(tree.children) ? tree.children : [];
   const firstH1Index = rootChildren.findIndex((n) => isHeading(n) && (n as Heading).depth === 1);
@@ -738,7 +888,9 @@ export function parseAgentMdFromString(raw: string): AgentDefinition {
     throw new Error(`Invalid frontmatter 'required': expected an object.`);
   }
 
-  const commands = getCommandsStrict(fm.commands) ?? [...AGENT_DEFINITION_DEFAULTS.commands];
+  const commandsFromFrontmatter = getCommandsStrict(fm.commands) ?? [...AGENT_DEFINITION_DEFAULTS.commands];
+  const commandsFromMarkdown = extractCommandsFromMarkdown(parsed.content);
+  const commands = [...commandsFromFrontmatter, ...commandsFromMarkdown];
 
   // Policy order:
   // 1) ## System

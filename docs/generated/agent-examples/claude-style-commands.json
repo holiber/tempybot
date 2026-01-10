@@ -1,0 +1,29 @@
+{
+  "commands": [
+    {
+      "argument-hint": "[pr-number] [priority] [assignee]",
+      "body": "Review PR #$1 with priority $2 and assign to $3.\nFocus on security, performance, and code style.\n",
+      "description": "Review pull request",
+      "name": "Review"
+    },
+    {
+      "allowed-tools": "Bash(git add:*), Bash(git commit:*)",
+      "argument-hint": "[message]",
+      "body": "- Current git status: !`git status`\n",
+      "description": "Commit changes",
+      "name": "Commit"
+    }
+  ],
+  "description": "This agent demonstrates Claude-style slash command definitions.",
+  "icon": "🧩",
+  "input": "",
+  "recommended": {},
+  "required": {},
+  "rules": "",
+  "status": "active",
+  "system": "You are a helpful assistant.",
+  "templateEngine": "hbs",
+  "title": "Agent with commands",
+  "toolsSource": "return {};",
+  "version": "1.0.0"
+}
