@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "tool": "mcp",
+  "method": "cursor.jobs.create",
+  "args": {
+    "source": "agnet.ts",
+    "command": "/myagent resolve",
+    "repo": "holiber/tempybot",
+    "issueNumber": 46,
+    "commentId": 201
+  },
+  "result": {
+    "jobId": "job-123",
+    "status": "started"
+  }
+}
+

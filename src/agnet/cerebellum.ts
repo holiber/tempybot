@@ -78,6 +78,20 @@ export async function executeMcpCall(
   const fixturePath = readEnv("AGNET_MCP_FIXTURE_PATH");
   if (fixturePath) {
     const stdout = await readFixtureText(fixturePath, cwd);
+    // Allow fixture-driven failures for deterministic tests.
+    // Convention: if the fixture JSON contains { ok: false, error: { message } }, treat it as a tool failure.
+    try {
+      const parsed = JSON.parse(stdout) as any;
+      if (parsed && typeof parsed === "object" && parsed.ok === false) {
+        const msg =
+          typeof parsed?.error?.message === "string" && parsed.error.message.trim()
+            ? parsed.error.message.trim()
+            : "MCP fixture reported ok=false.";
+        return { ok: false, error: { message: msg } };
+      }
+    } catch {
+      // Non-JSON fixtures are treated as plain stdout.
+    }
     return { ok: true, stdout };
   }
 

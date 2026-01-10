@@ -4,7 +4,7 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
-import { Cerebellum, executeGh, executeMcpCall } from "../src/agnet/cerebellum.ts";
+import { Cerebellum, type CerebellumToolRequest, executeGh, executeMcpCall } from "../src/agnet/cerebellum.ts";
 import { CollectionFactory } from "../src/stc/light/collection.ts";
 import type { STC } from "../src/types/light/stc.js";
 
@@ -34,6 +34,10 @@ type SlashCommand = {
   issueNumber: number;
   url: string;
 };
+
+type ToolEvent =
+  | { type: "tool.request"; request: CerebellumToolRequest; intention?: string }
+  | { type: "tool.result"; request: CerebellumToolRequest; ok: boolean; blocked?: boolean; errorMessage?: string };
 
 function parseMyAgentSlashCommand(body: string): { name: string; args: string[]; raw: string } | null {
   const lines = body.split(/\r?\n/);
@@ -581,10 +585,12 @@ async function cmdRun(opts: {
   const world = await buildWorldSnapshot(opts.cwd);
 
   const logs: string[] = [];
+  const toolEvents: ToolEvent[] = [];
   const cerebellum = new Cerebellum<{
     world: WorldSnapshot;
     idempotency: typeof store;
     logs: string[];
+    toolEvents: ToolEvent[];
     cerebellum: Cerebellum<any>;
   }>();
 
@@ -595,10 +601,29 @@ async function cmdRun(opts: {
     if (data?.type === "log") {
       const msg = String(data?.payload?.message ?? "").trim();
       if (msg) logs.push(msg);
+      return;
+    }
+    if (data?.type === "tool.request") {
+      const req = data?.payload?.request as CerebellumToolRequest | undefined;
+      if (!req) return;
+      toolEvents.push({ type: "tool.request", request: req, intention: data?.payload?.intention });
+      return;
+    }
+    if (data?.type === "tool.result") {
+      const req = data?.payload?.request as CerebellumToolRequest | undefined;
+      const res = data?.payload?.result as any;
+      if (!req || !res) return;
+      toolEvents.push({
+        type: "tool.result",
+        request: req,
+        ok: Boolean(res?.ok),
+        blocked: res?.blocked ? true : undefined,
+        errorMessage: typeof res?.error?.message === "string" ? res.error.message : undefined,
+      });
     }
   });
 
-  const ctx = { world, idempotency: store, logs, cerebellum };
+  const ctx = { world, idempotency: store, logs, toolEvents, cerebellum };
   cerebellum.worldSnapshot(world);
 
   // Default wake hook: detect `/myagent <command> [args...]` in new comments with idempotency.
@@ -616,7 +641,6 @@ async function cmdRun(opts: {
         continue;
       }
 
-      ctx.idempotency.seen.upsert({ id: it.id, seenAt: ctx.world.ts }, it.id);
       found = {
         agent: "myagent",
         name: parsed.name,
@@ -653,18 +677,115 @@ async function cmdRun(opts: {
   });
 
   const wake = await cerebellum.dispatch({ type: "wake", payload: { world } }, ctx);
-  await persistIdempotencyStore(store);
 
   const cmd = (wake?.meta as any)?.command as SlashCommand | undefined;
   const message = cmd ? `Found command: ${cmd.name}` : "Nothing to do";
 
-  // Minimal agent action (Tier 1): resolve triggers a gh tool request (subject to hooks).
-  if (cmd?.name === "resolve") {
-    const toolReq = { tool: "gh" as const, args: ["issue", "status"] };
-    const exec = await cerebellum.executeTool(toolReq, { actor: { role: "agent" }, ctx });
-    if (exec.result.ok) {
-      cerebellum.log("gh executed");
+  async function markProcessed(commentItemId: string): Promise<void> {
+    ctx.idempotency.seen.upsert({ id: commentItemId, seenAt: ctx.world.ts }, commentItemId);
+    await persistIdempotencyStore(store);
+  }
+
+  function parseJsonMaybe(raw: string): unknown | null {
+    const txt = String(raw ?? "").trim();
+    if (!txt) return null;
+    try {
+      return JSON.parse(txt) as unknown;
+    } catch {
+      return null;
     }
+  }
+
+  async function postIssueComment(args: { repo: string; issueNumber: number; body: string; intention: string }): Promise<boolean> {
+    const toolReq: CerebellumToolRequest = {
+      tool: "gh",
+      args: ["issue", "comment", String(args.issueNumber), "-R", args.repo, "--body", args.body],
+    };
+    const exec = await cerebellum.executeTool(toolReq, { actor: { role: "agent" }, intention: args.intention, ctx });
+    if (!exec.result.ok) {
+      cerebellum.log(`Failed to post GitHub comment: ${exec.result.error.message}`, "error");
+      return false;
+    }
+    return true;
+  }
+
+  async function startCursorJob(cmd: SlashCommand): Promise<{ ok: true; jobId: string } | { ok: false; message: string }> {
+    const toolReq: CerebellumToolRequest = {
+      tool: "mcp",
+      method: "cursor.jobs.create",
+      args: { source: "agnet.ts", command: cmd.raw, repo: cmd.repo, issueNumber: cmd.issueNumber, commentId: cmd.commentId },
+      specPath: "fixtures/cursor.openapi.yml",
+    };
+    const exec = await cerebellum.executeTool(toolReq, { actor: { role: "agent" }, intention: "Start Cursor job for /myagent resolve", ctx });
+    if (!exec.result.ok) {
+      return { ok: false, message: exec.result.error.message };
+    }
+
+    const parsed = parseJsonMaybe(exec.result.stdout) as any;
+    const jobId =
+      (typeof parsed?.result?.jobId === "string" && parsed.result.jobId.trim()) ||
+      (typeof parsed?.jobId === "string" && parsed.jobId.trim()) ||
+      "unknown";
+    return { ok: true, jobId };
+  }
+
+  async function handleResolve(cmd: SlashCommand): Promise<number> {
+    const ackBody = "Acknowledged, working…";
+    cerebellum.log(ackBody);
+    const ackOk = await postIssueComment({
+      repo: cmd.repo,
+      issueNumber: cmd.issueNumber,
+      body: ackBody,
+      intention: "Acknowledge /myagent resolve command",
+    });
+    if (!ackOk) return 1;
+
+    const started = await startCursorJob(cmd);
+    if (!started.ok) {
+      cerebellum.log(`Failed to start Cursor job: ${started.message}`, "error");
+      const failBody = `Failed: ${started.message}`;
+      await postIssueComment({
+        repo: cmd.repo,
+        issueNumber: cmd.issueNumber,
+        body: failBody,
+        intention: "Report /myagent resolve failure",
+      });
+      return 1;
+    }
+
+    cerebellum.log(`Cursor job started: ${started.jobId}`);
+
+    const summaryBody = [
+      "Final summary",
+      "",
+      `- Command: ${cmd.raw}`,
+      `- Cursor job: ${started.jobId}`,
+      `- Source: ${cmd.url}`,
+    ].join("\n");
+    const summaryOk = await postIssueComment({
+      repo: cmd.repo,
+      issueNumber: cmd.issueNumber,
+      body: summaryBody,
+      intention: "Post final summary for /myagent resolve",
+    });
+    if (!summaryOk) return 1;
+
+    cerebellum.log("Posted final summary");
+    return 0;
+  }
+
+  let exitCode = 0;
+  if (cmd) {
+    if (cmd.name === "resolve") {
+      exitCode = await handleResolve(cmd);
+    } else {
+      cerebellum.log(`Unsupported command: ${cmd.name}`, "warn");
+      exitCode = 0;
+    }
+    await markProcessed(cmd.itemId);
+  } else {
+    // Persist store for deterministic fixture tests (even if empty).
+    await persistIdempotencyStore(store);
   }
 
   if (opts.mode === "json") {
@@ -672,18 +793,20 @@ async function cmdRun(opts: {
     console.log(
       JSON.stringify(
         {
-          ok: true,
+          ok: exitCode === 0,
           command: "run",
           result: cmd ? "wake" : "nothing",
           message,
           ...(cmd ? { foundCommand: cmd } : {}),
           logs,
+          toolEvents,
+          exitCode,
         },
         null,
         2
       )
     );
-    return 0;
+    return exitCode;
   }
 
   // eslint-disable-next-line no-console
@@ -692,7 +815,7 @@ async function cmdRun(opts: {
     // eslint-disable-next-line no-console
     console.log(line);
   }
-  return 0;
+  return exitCode;
 }
 
 function splitCliWords(input: string): string[] {

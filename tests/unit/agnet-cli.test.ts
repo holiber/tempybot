@@ -88,6 +88,8 @@ describe("agnet.ts CLI (unit)", () => {
       ["--json", "--templates", template, "run", "--world"],
       {
         AGNET_GH_FIXTURE_PATH: "fixtures/gh_issue_comments_myagent_resolve.json",
+        AGNET_GH_FIXTURE_CMD: "fixtures/gh_cmd_output.txt",
+        AGNET_MCP_FIXTURE_PATH: "fixtures/mcp_cursor_start_ok.json",
         AGNET_IDEMPOTENCY_PATH: idemPath,
       }
     );
@@ -114,6 +116,8 @@ describe("agnet.ts CLI (unit)", () => {
     const idemPath = makeTempFilePath("idempotency");
     const env = {
       AGNET_GH_FIXTURE_PATH: "fixtures/gh_issue_comments_myagent_resolve.json",
+      AGNET_GH_FIXTURE_CMD: "fixtures/gh_cmd_output.txt",
+      AGNET_MCP_FIXTURE_PATH: "fixtures/mcp_cursor_start_ok.json",
       AGNET_IDEMPOTENCY_PATH: idemPath,
     };
 
@@ -180,17 +184,71 @@ describe("agnet.ts CLI (unit)", () => {
     expect(res.stdout).toContain('"jobId": "abc"');
   });
 
-  it("hook blocks gh tool call without intention (run --world)", () => {
+  it("run --world /myagent resolve performs full workflow (fixtures) and marks idempotency", () => {
     const template = path.join(process.cwd(), "agents", "repoboss.agent.md");
     const idemPath = makeTempFilePath("idempotency");
-    const res = runAgnet(["--templates", template, "run", "--world"], {
+    const res = runAgnet(["--json", "--templates", template, "run", "--world"], {
       AGNET_GH_FIXTURE_PATH: "fixtures/gh_issue_comments_myagent_resolve.json",
       AGNET_IDEMPOTENCY_PATH: idemPath,
       AGNET_GH_FIXTURE_CMD: "fixtures/gh_cmd_output.txt",
+      AGNET_MCP_FIXTURE_PATH: "fixtures/mcp_cursor_start_ok.json",
     });
     expect(res.code, combinedOutput(res)).toBe(0);
-    expect(res.stdout).toContain("Blocked");
-    expect(res.stdout).not.toContain("gh executed");
+    const json = parseJsonStdout<{
+      ok: true;
+      command: "run";
+      exitCode: number;
+      logs: string[];
+      toolEvents: Array<{ type: string; request: { tool: string; args?: string[] } }>;
+    }>(res);
+    expect(json.exitCode).toBe(0);
+    expect(json.logs.join("\n")).toContain("Acknowledged");
+    expect(json.logs.join("\n")).toContain("Cursor job started");
+    expect(json.logs.join("\n")).toContain("Posted final summary");
+
+    // Verify tool calls include issue comments with deterministic bodies.
+    const ghRequests = json.toolEvents
+      .filter((e) => e.type === "tool.request" && e.request?.tool === "gh")
+      .map((e) => (e.request as any).args as string[]);
+    expect(ghRequests.length).toBeGreaterThanOrEqual(2);
+    expect(ghRequests.some((a) => a.includes("issue") && a.includes("comment") && a.includes("Acknowledged, working…"))).toBe(
+      true
+    );
+    expect(ghRequests.some((a) => a.includes("issue") && a.includes("comment") && a.some((x) => x.includes("Final summary")))).toBe(
+      true
+    );
+
+    // Verify idempotency record was written for the comment item.
+    const idemRaw = fs.readFileSync(idemPath, "utf8");
+    expect(idemRaw).toContain("holiber/tempybot#46/comment/201");
+  });
+
+  it("run --world /myagent resolve posts failure comment and exits 1 on Cursor failure (fixtures)", () => {
+    const template = path.join(process.cwd(), "agents", "repoboss.agent.md");
+    const idemPath = makeTempFilePath("idempotency");
+    const res = runAgnet(["--json", "--templates", template, "run", "--world"], {
+      AGNET_GH_FIXTURE_PATH: "fixtures/gh_issue_comments_myagent_resolve.json",
+      AGNET_IDEMPOTENCY_PATH: idemPath,
+      AGNET_GH_FIXTURE_CMD: "fixtures/gh_cmd_output.txt",
+      AGNET_MCP_FIXTURE_PATH: "fixtures/mcp_cursor_start_fail.json",
+    });
+    expect(res.code, combinedOutput(res)).toBe(1);
+    const json = parseJsonStdout<{
+      ok: false;
+      command: "run";
+      exitCode: number;
+      logs: string[];
+      toolEvents: Array<{ type: string; request: { tool: string; args?: string[] } }>;
+    }>(res);
+    expect(json.exitCode).toBe(1);
+    expect(json.logs.join("\n")).toContain("Failed");
+
+    const ghRequests = json.toolEvents
+      .filter((e) => e.type === "tool.request" && e.request?.tool === "gh")
+      .map((e) => (e.request as any).args as string[]);
+    expect(ghRequests.some((a) => a.includes("issue") && a.includes("comment") && a.some((x) => x.includes("Failed")))).toBe(
+      true
+    );
   });
 });
 
