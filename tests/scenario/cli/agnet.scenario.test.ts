@@ -8,11 +8,12 @@ test("agnet doctor prints header and template count", async () => {
   const cli = new CliSession(process.execPath, [script, "--templates", template, "doctor"], process.cwd());
 
   try {
-    await cli.waitFor("Doctor");
-    await cli.waitFor("Templates loaded: 1");
+    const { exitCode } = await cli.waitForExit(60_000);
+    const out = cli.output();
 
-    const { exitCode } = await cli.waitForExit();
     expect(exitCode).toBe(0);
+    expect(out).toContain("Doctor");
+    expect(out).toContain("Templates loaded: 1");
   } finally {
     cli.kill();
   }
@@ -28,11 +29,12 @@ test("agnet run --world prints stub world", async () => {
   );
 
   try {
-    await cli.waitFor("WORLD");
-    await cli.waitFor(/items:\s*0/);
+    const { exitCode } = await cli.waitForExit(60_000);
+    const out = cli.output();
 
-    const { exitCode } = await cli.waitForExit();
     expect(exitCode).toBe(0);
+    expect(out).toContain("WORLD");
+    expect(out).toMatch(/items:\s*0/);
   } finally {
     cli.kill();
   }
@@ -44,11 +46,12 @@ test("missing --templates path fails with a helpful error", async () => {
   const cli = new CliSession(process.execPath, [script, "--templates", missing, "doctor"], process.cwd());
 
   try {
-    await cli.waitFor(/--templates/i);
-    await cli.waitFor(/not found/i);
+    const { exitCode } = await cli.waitForExit(60_000);
+    const out = cli.output();
 
-    const { exitCode } = await cli.waitForExit();
     expect(exitCode).not.toBe(0);
+    expect(out).toMatch(/--templates/i);
+    expect(out).toMatch(/not found/i);
   } finally {
     cli.kill();
   }
@@ -59,11 +62,12 @@ test("tools prints help and exits non-zero on wrong usage", async () => {
   const cli = new CliSession(process.execPath, [script, "tools", "nope"], process.cwd());
 
   try {
-    await cli.waitFor("agnet.ts tools");
-    await cli.waitFor(/Unknown tools command/i);
+    const { exitCode } = await cli.waitForExit(60_000);
+    const out = cli.output();
 
-    const { exitCode } = await cli.waitForExit();
     expect(exitCode).toBe(2);
+    expect(out).toContain("agnet.ts tools");
+    expect(out).toMatch(/Unknown tools command/i);
   } finally {
     cli.kill();
   }
