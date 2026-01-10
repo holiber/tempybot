@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
@@ -8,11 +10,11 @@ type RunResult = {
   stderr: string;
 };
 
-function runAgnet(args: string[]): RunResult {
+function runAgnet(args: string[], env?: Record<string, string | undefined>): RunResult {
   const script = path.join(process.cwd(), "scripts", "agnet.ts");
   const r = spawnSync(process.execPath, [script, ...args], {
     cwd: process.cwd(),
-    env: { ...process.env, FORCE_COLOR: "0" },
+    env: { ...process.env, FORCE_COLOR: "0", ...(env ?? {}) },
     encoding: "utf8",
   });
 
@@ -39,6 +41,11 @@ function parseJsonStdout<T>(r: RunResult): T {
   }
 }
 
+function makeTempFilePath(prefix: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agnet-cli-"));
+  return path.join(dir, `${prefix}.json`);
+}
+
 describe("agnet.ts CLI (unit)", () => {
   it("doctor prints header and template count", () => {
     const template = path.join(process.cwd(), "agents", "repoboss.agent.md");
@@ -56,14 +63,36 @@ describe("agnet.ts CLI (unit)", () => {
     expect(json.templates).toEqual(["agents/repoboss.agent.md"]);
   });
 
-  it("run --world prints stub world", () => {
+  it("run --world prints World snapshot JSON (fixture)", () => {
     const template = path.join(process.cwd(), "agents", "repoboss.agent.md");
-    const res = runAgnet(["--json", "--templates", template, "run", "--world"]);
+    const idemPath = makeTempFilePath("idempotency");
+    const res = runAgnet(
+      ["--json", "--templates", template, "run", "--world"],
+      {
+        AGNET_GH_FIXTURE_PATH: "fixtures/gh_issue_comments.json",
+        AGNET_IDEMPOTENCY_PATH: idemPath,
+      }
+    );
     expect(res.code, combinedOutput(res)).toBe(0);
-    const json = parseJsonStdout<{ ok: true; command: "run"; world: { items: number } }>(res);
-    expect(json.ok).toBe(true);
-    expect(json.command).toBe("run");
-    expect(json.world.items).toBe(0);
+    const json = parseJsonStdout<{ items: Array<{ kind: string; meta?: Record<string, unknown> }>; ts: string }>(res);
+    expect(Array.isArray(json.items)).toBe(true);
+    expect(json.items.length).toBe(2);
+    expect(json.items[0]!.kind).toBe("comment");
+    expect((json.items[0]!.meta as any)?.repo).toBeTruthy();
+    expect((json.items[0]!.meta as any)?.commentId).toBeTruthy();
+
+    // Idempotency: rerunning with the same store should be a no-op.
+    const res2 = runAgnet(
+      ["--json", "--templates", template, "run", "--world"],
+      {
+        AGNET_GH_FIXTURE_PATH: "fixtures/gh_issue_comments.json",
+        AGNET_IDEMPOTENCY_PATH: idemPath,
+      }
+    );
+    expect(res2.code, combinedOutput(res2)).toBe(0);
+    const json2 = parseJsonStdout<{ items: Array<unknown> }>(res2);
+    expect(Array.isArray(json2.items)).toBe(true);
+    expect(json2.items.length).toBe(0);
   });
 
   it("missing --templates path fails with a helpful error", () => {

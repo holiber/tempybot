@@ -4,10 +4,13 @@
  * IMPORTANT:
  * - These tests run the CLI inside a PTY (see `CliSession`).
  * - To keep output deterministic, we force JSON output mode and assert only on parsed JSON.
+ * - External systems (GitHub) must be fixture-driven.
  *
  * Unit tests covering the same CLI contract live in: `tests/unit/agnet-cli.test.ts`
  */
 
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { CliSession } from "../test-utils.js";
@@ -40,6 +43,11 @@ function parseLastJsonObject<T>(rawOutput: string): T {
   }
 }
 
+function makeTempFilePath(prefix: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agnet-scenario-"));
+  return path.join(dir, `${prefix}.json`);
+}
+
 test("agnet doctor prints templates count (json)", async () => {
   const script = path.join(process.cwd(), "scripts", "agnet.ts");
   const template = path.join(process.cwd(), "agents", "repoboss.agent.md");
@@ -65,9 +73,15 @@ test("agnet doctor prints templates count (json)", async () => {
   }
 });
 
-test("agnet run --world prints stub world (json)", async () => {
+test("agnet run --world prints World snapshot (json, fixture)", async () => {
   const script = path.join(process.cwd(), "scripts", "agnet.ts");
   const template = path.join(process.cwd(), "agents", "repoboss.agent.md");
+
+  const prevFixture = process.env.AGNET_GH_FIXTURE_PATH;
+  const prevIdem = process.env.AGNET_IDEMPOTENCY_PATH;
+  process.env.AGNET_GH_FIXTURE_PATH = "fixtures/gh_issue_comments.json";
+  process.env.AGNET_IDEMPOTENCY_PATH = makeTempFilePath("idempotency");
+
   const cli = new CliSession(
     process.execPath,
     [script, "--json", "--templates", template, "run", "--world"],
@@ -78,12 +92,20 @@ test("agnet run --world prints stub world (json)", async () => {
     const { exitCode } = await cli.waitForExit(60_000);
     expect(exitCode).toBe(0);
 
-    const json = parseLastJsonObject<{ ok: true; command: "run"; world: { items: number } }>(cli.output());
-    expect(json.ok).toBe(true);
-    expect(json.command).toBe("run");
-    expect(json.world.items).toBe(0);
+    const json = parseLastJsonObject<{
+      items: Array<{ kind: string; meta?: Record<string, unknown> }>;
+      ts: string;
+    }>(cli.output());
+
+    expect(Array.isArray(json.items)).toBe(true);
+    expect(json.items.length).toBeGreaterThan(0);
+    expect(json.items[0]!.kind).toBe("comment");
+    expect((json.items[0]!.meta as any)?.repo).toBeTruthy();
+    expect((json.items[0]!.meta as any)?.commentId).toBeTruthy();
   } finally {
     cli.kill();
+    process.env.AGNET_GH_FIXTURE_PATH = prevFixture;
+    process.env.AGNET_IDEMPOTENCY_PATH = prevIdem;
   }
 });
 

@@ -2,8 +2,25 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { spawnSync } from "node:child_process";
+
+import { CollectionFactory } from "../src/stc/light/collection.ts";
+import type { STC } from "../src/types/light/stc.js";
 
 type OutputMode = "text" | "json";
+
+type WorldItemMeta = {
+  repo: string;
+  issueNumber: number;
+  commentId: number;
+  author: string;
+  body: string;
+  url: string;
+  updatedAt: string;
+};
+
+type WorldItem = STC.World.Item<Record<string, unknown>> & { kind: "comment"; meta: WorldItemMeta };
+type WorldSnapshot = STC.World.World<Record<string, unknown>> & { items: Array<WorldItem> };
 
 function mainHelpText(): string {
   const text = `
@@ -40,7 +57,7 @@ function runHelpText(): string {
 agnet.ts --templates <path> run --world
 
 Flags:
-  --world   Print a stub STC.World snapshot (Tier 1 MVP)
+  --world   Build STC.World snapshot (GitHub issue comments)
 `.trim();
   return text;
 }
@@ -141,6 +158,214 @@ async function statSafe(p: string): Promise<import("node:fs").Stats | null> {
 
 async function ensureDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
+}
+
+function readEnv(name: string): string | undefined {
+  const v = process.env[name];
+  return v && v.trim() ? v.trim() : undefined;
+}
+
+async function readJsonFile<T>(p: string): Promise<T> {
+  const raw = await fs.readFile(p, "utf8");
+  return JSON.parse(raw) as T;
+}
+
+async function persistGhFailure(args: string[], res: { status: number | null; stdout?: string | null; stderr?: string | null }): Promise<string> {
+  const cwd = process.cwd();
+  const outPath = path.join(cwd, ".agnet", "gh-last-error.json");
+  await ensureDir(path.dirname(outPath));
+  const payload = {
+    ts: new Date().toISOString(),
+    cmd: "gh",
+    args,
+    exitCode: res.status ?? null,
+    stdout: res.stdout ?? "",
+    stderr: res.stderr ?? ""
+  };
+  await fs.writeFile(outPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  return toRelPath(outPath, cwd);
+}
+
+async function ghJson(args: string[]): Promise<unknown> {
+  const r = spawnSync("gh", args, {
+    cwd: process.cwd(),
+    env: { ...process.env, FORCE_COLOR: "0" },
+    encoding: "utf8",
+    maxBuffer: 50 * 1024 * 1024
+  });
+  if ((r.status ?? 1) !== 0) {
+    const rel = await persistGhFailure(args, r);
+    throw new Error(`gh failed (exit=${r.status ?? "unknown"}). See: ${rel}`);
+  }
+  const raw = (r.stdout ?? "").trim();
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch (e) {
+    throw new Error(
+      `Failed to parse JSON from gh output: ${e instanceof Error ? e.message : String(e)}`
+    );
+  }
+}
+
+async function ghText(args: string[]): Promise<string> {
+  const r = spawnSync("gh", args, {
+    cwd: process.cwd(),
+    env: { ...process.env, FORCE_COLOR: "0" },
+    encoding: "utf8",
+    maxBuffer: 10 * 1024 * 1024
+  });
+  if ((r.status ?? 1) !== 0) {
+    const rel = await persistGhFailure(args, r);
+    throw new Error(`gh failed (exit=${r.status ?? "unknown"}). See: ${rel}`);
+  }
+  return (r.stdout ?? "").trim();
+}
+
+function parseIssueListEnv(raw: string | undefined): number[] | null {
+  if (!raw) return null;
+  const nums = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => Number(s))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  return nums.length ? nums : null;
+}
+
+async function loadGhIssueCommentsFromFixture(fixturePath: string, cwd: string): Promise<WorldItemMeta[]> {
+  const abs = path.isAbsolute(fixturePath) ? fixturePath : path.resolve(cwd, fixturePath);
+  const data = await readJsonFile<any>(abs);
+
+  const repo = typeof data?.repo === "string" && data.repo.trim() ? data.repo.trim() : "unknown/unknown";
+  const comments = Array.isArray(data?.comments) ? data.comments : Array.isArray(data) ? data : null;
+  if (!comments) {
+    throw new Error(`Invalid GitHub fixture JSON (expected { repo, comments: [...] } or [...]).`);
+  }
+
+  const out: WorldItemMeta[] = [];
+  for (const c of comments) {
+    const issueNumber = Number(c?.issueNumber);
+    const commentId = Number(c?.commentId ?? c?.id);
+    const author = String(c?.author ?? c?.user ?? c?.user?.login ?? "");
+    const body = String(c?.body ?? "");
+    const url = String(c?.url ?? c?.html_url ?? "");
+    const updatedAt = String(c?.updatedAt ?? c?.updated_at ?? "");
+
+    if (!Number.isFinite(issueNumber) || issueNumber <= 0) continue;
+    if (!Number.isFinite(commentId) || commentId <= 0) continue;
+    if (!author) continue;
+    if (!url) continue;
+    if (!updatedAt) continue;
+
+    out.push({ repo, issueNumber, commentId, author, body, url, updatedAt });
+  }
+
+  return out;
+}
+
+async function loadGhIssueCommentsViaGh(cwd: string): Promise<WorldItemMeta[]> {
+  const repo =
+    readEnv("AGNET_GH_REPO") ??
+    (await ghText(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]));
+  const issueNumbers =
+    parseIssueListEnv(readEnv("AGNET_GH_ISSUES")) ??
+    (await (async () => {
+      // NOTE: `--jq` makes stdout a plain newline-separated list of numbers.
+      const raw = await ghText(["issue", "list", "--limit", "20", "--json", "number", "--jq", ".[].number"]);
+      return raw
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => Number(s))
+        .filter((n) => Number.isFinite(n) && n > 0);
+    })());
+
+  const out: WorldItemMeta[] = [];
+  for (const issueNumber of issueNumbers) {
+    const arr = await ghJson(["api", `repos/${repo}/issues/${issueNumber}/comments`]);
+    if (!Array.isArray(arr)) continue;
+    for (const c of arr) {
+      const commentId = Number((c as any)?.id);
+      const author = String((c as any)?.user?.login ?? "");
+      const body = String((c as any)?.body ?? "");
+      const url = String((c as any)?.html_url ?? "");
+      const updatedAt = String((c as any)?.updated_at ?? "");
+
+      if (!Number.isFinite(commentId) || commentId <= 0) continue;
+      if (!author) continue;
+      if (!url) continue;
+      if (!updatedAt) continue;
+
+      out.push({ repo, issueNumber, commentId, author, body, url, updatedAt });
+    }
+  }
+
+  return out;
+}
+
+function toWorldItem(meta: WorldItemMeta): WorldItem {
+  return {
+    id: `${meta.repo}#${meta.issueNumber}/comment/${meta.commentId}`,
+    kind: "comment",
+    summary: `@${meta.author} on #${meta.issueNumber}`,
+    meta
+  };
+}
+
+type IdempotencyRecord = { id: string; seenAt: string };
+
+async function loadIdempotencyStore(cwd: string): Promise<{
+  path: string;
+  seen: { has(key: string): boolean; upsert(record: IdempotencyRecord, key?: string): unknown; list(): IdempotencyRecord[] };
+  source: "file" | "empty";
+}> {
+  const p = readEnv("AGNET_IDEMPOTENCY_PATH") ?? path.join(cwd, ".agnet", "cache.json");
+  const seen = new CollectionFactory().create<IdempotencyRecord, string>({ name: "gh.commentIdempotency", keyField: "id" });
+
+  try {
+    const data = await readJsonFile<any>(p);
+    const arr = Array.isArray(data?.seen) ? data.seen : Array.isArray(data) ? data : [];
+    for (const r of arr) {
+      const id = typeof r?.id === "string" ? r.id : null;
+      const seenAt = typeof r?.seenAt === "string" ? r.seenAt : null;
+      if (!id || !seenAt) continue;
+      seen.upsert({ id, seenAt }, id);
+    }
+    return { path: p, seen, source: "file" };
+  } catch {
+    return { path: p, seen, source: "empty" };
+  }
+}
+
+async function persistIdempotencyStore(store: { path: string; seen: { list(): IdempotencyRecord[] } }): Promise<void> {
+  await ensureDir(path.dirname(store.path));
+  const data = { version: 1, seen: store.seen.list() };
+  await fs.writeFile(store.path, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+}
+
+async function buildWorldSnapshot(cwd: string): Promise<WorldSnapshot> {
+  const fixturePath = readEnv("AGNET_GH_FIXTURE_PATH");
+  const metas = fixturePath
+    ? await loadGhIssueCommentsFromFixture(fixturePath, cwd)
+    : await loadGhIssueCommentsViaGh(cwd);
+
+  // Deterministic ordering.
+  metas.sort((a, b) => {
+    if (a.repo !== b.repo) return a.repo.localeCompare(b.repo);
+    if (a.issueNumber !== b.issueNumber) return a.issueNumber - b.issueNumber;
+    return a.commentId - b.commentId;
+  });
+
+  const items = metas.map(toWorldItem);
+  return {
+    items,
+    ts: new Date().toISOString(),
+    meta: {
+      repo: metas[0]?.repo ?? (fixturePath ? "unknown/unknown" : readEnv("AGNET_GH_REPO") ?? "unknown/unknown"),
+      source: fixturePath ? "fixture" : "gh"
+    }
+  };
 }
 
 async function transpileTsToJsFile(opts: { inPath: string; outPath: string }): Promise<void> {
@@ -323,17 +548,32 @@ async function cmdRun(opts: {
   // Parse to validate.
   for (const f of files) await parseAgentMd(f);
 
-  // Tier 1 stub world.
+  const store = await loadIdempotencyStore(opts.cwd);
+  const world = await buildWorldSnapshot(opts.cwd);
+
+  // Idempotency filter: only emit unseen comments.
+  const newItems: WorldItem[] = [];
+  for (const it of world.items) {
+    if (store.seen.has(it.id)) continue;
+    store.seen.upsert({ id: it.id, seenAt: world.ts }, it.id);
+    newItems.push(it);
+  }
+  const snapshot: WorldSnapshot = { ...world, items: newItems };
+  await persistIdempotencyStore(store);
+
   if (opts.mode === "json") {
     // eslint-disable-next-line no-console
-    console.log(JSON.stringify({ ok: true, command: "run", world: { items: 0 } }, null, 2));
+    console.log(JSON.stringify(snapshot, null, 2));
     return 0;
   }
 
   // eslint-disable-next-line no-console
   console.log("WORLD");
   // eslint-disable-next-line no-console
-  console.log("items: 0");
+  console.log(`items: ${snapshot.items.length}`);
+  const kinds = Array.from(new Set(snapshot.items.map((i) => i.kind))).sort();
+  // eslint-disable-next-line no-console
+  console.log(`kinds: ${kinds.join(", ") || "-"}`);
   return 0;
 }
 

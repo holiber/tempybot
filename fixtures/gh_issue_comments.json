@@ -1,0 +1,22 @@
+{
+  "repo": "holiber/tempybot",
+  "comments": [
+    {
+      "issueNumber": 46,
+      "commentId": 101,
+      "author": "alice",
+      "body": "/repoboss do it",
+      "url": "https://github.com/holiber/tempybot/issues/46#issuecomment-101",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "issueNumber": 45,
+      "commentId": 102,
+      "author": "bob",
+      "body": "looks good",
+      "url": "https://github.com/holiber/tempybot/issues/45#issuecomment-102",
+      "updatedAt": "2026-01-02T00:00:00.000Z"
+    }
+  ]
+}
+
