@@ -7,11 +7,13 @@ test("web scenario: logs in and sees greetings", async () => {
   const web = await startWebSession();
   try {
     await web.page.goto(`${server.url}/auth`);
+    await userSleep(250);
 
     await web.page.getByTestId("auth-form").waitFor({ state: "visible" });
     expect(await web.page.getByTestId("auth-form").isVisible()).toBe(true);
 
     await userType(web.page, '[data-testid="login-input"]', "hello word");
+    await userSleep(200);
     await userType(web.page, '[data-testid="password-input"]', "hello word");
     await userSleep(250);
 
@@ -19,6 +21,7 @@ test("web scenario: logs in and sees greetings", async () => {
     await userSleep(250);
 
     await web.page.getByTestId("login-button").click();
+    await userSleep(250);
 
     await web.page.getByTestId("auth-form").waitFor({ state: "hidden" });
     await web.page.getByTestId("greetings-title").waitFor({ state: "visible" });

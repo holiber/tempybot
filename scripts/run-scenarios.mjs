@@ -194,7 +194,20 @@ function runCliUserlikeWithVideo(file) {
 
   const ff = spawnSync(
     "ffmpeg",
-    ["-y", "-i", gifPath, "-movflags", "faststart", "-pix_fmt", "yuv420p", mp4Path],
+    [
+      "-y",
+      "-i",
+      gifPath,
+      // H.264/yuv420p requires even dimensions; agg can output odd-sized GIFs.
+      // Pad to the next even width/height so the mp4 encoder doesn't fail.
+      "-vf",
+      "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+      "-movflags",
+      "faststart",
+      "-pix_fmt",
+      "yuv420p",
+      mp4Path,
+    ],
     { stdio: "inherit" }
   );
   if ((ff.status ?? 1) !== 0) return { ok: true, outDir, castPath, mp4Path: null, usedVideo: true };
