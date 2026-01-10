@@ -1,12 +1,14 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import readline from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
 import { Cerebellum, type CerebellumToolRequest, executeGh, executeMcpCall } from "../src/agnet/cerebellum.ts";
 import { runSelfCheck } from "../src/agnet/self-check.ts";
 import { CollectionFactory } from "../src/stc/light/collection.ts";
+import { InMemoryChat } from "../src/stc/light/chat.ts";
 import type { STC } from "../src/types/light/stc.js";
 
 type OutputMode = "text" | "json";
@@ -60,6 +62,7 @@ function mainHelpText(): string {
   const text = `
 agnet.ts --templates <path> doctor
 agnet.ts --templates <path> run --world
+agnet.ts interactive
 agnet.ts tools
 agnet.ts selfcheck
 
@@ -70,6 +73,7 @@ Global flags:
 Examples:
   node scripts/agnet.ts --templates agents/repoboss.agent.md doctor
   node scripts/agnet.ts --templates agents/repoboss.agent.md run --world
+  node scripts/agnet.ts interactive
   node scripts/agnet.ts --json selfcheck
 `.trim();
   return text;
@@ -96,6 +100,21 @@ Flags:
   --world   Build STC.World snapshot (GitHub issue comments)
 `.trim();
   return text;
+}
+
+function interactiveHelpText(): string {
+  return `
+Interactive mode:
+  agnet.ts interactive
+
+Commands:
+  /tool random      Generate a random number in [0..1000] and store it in chat history
+  /history          Print last messages (debug)
+  /exit             Exit interactive mode
+
+Notes:
+  - "memory" is implemented via chat history (the agent recalls the last tool result from stored messages)
+`.trim();
 }
 
 function normalizePosixPath(p: string): string {
@@ -964,6 +983,120 @@ async function cmdSelfCheck(opts: { mode: OutputMode }): Promise<number> {
   return report.ok ? 0 : 1;
 }
 
+async function cmdInteractive(opts: { mode: OutputMode }): Promise<number> {
+  if (opts.mode === "json") {
+    printError(opts.mode, {
+      command: "interactive",
+      message: "Interactive mode does not support --json output.",
+      helpText: interactiveHelpText(),
+    });
+    return 2;
+  }
+
+  const chat = new InMemoryChat({
+    descriptor: { id: "interactive", chatType: "other", title: "Interactive", limits: { maxMessages: 10_000 } },
+  });
+
+  async function lastRandomFromHistory(): Promise<number | null> {
+    const res = await chat.fetchMessages({ limit: 10_000 });
+    for (const m of res.messages) {
+      if (m.role !== "tool") continue;
+      const txt = m.body.trim();
+      const match = txt.match(/^random_number:\s*(\d+)\s*$/);
+      if (!match) continue;
+      const n = Number(match[1]);
+      if (Number.isFinite(n) && n >= 0 && n <= 1000) return n;
+    }
+    return null;
+  }
+
+  function writeLine(s: string): void {
+    process.stdout.write(`${s}\n`);
+  }
+
+  writeLine("Interactive mode");
+  writeLine(interactiveHelpText());
+  writeLine("");
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+  rl.setPrompt("> ");
+  rl.prompt();
+
+  let exitCode = 0;
+
+  async function handleLine(raw: string): Promise<void> {
+    const line = raw.trim();
+    if (!line) {
+      rl.prompt();
+      return;
+    }
+
+    await chat.append({ role: "user", body: line });
+
+    if (line === "/exit") {
+      exitCode = 0;
+      rl.close();
+      return;
+    }
+
+    if (line === "/help") {
+      writeLine(interactiveHelpText());
+      rl.prompt();
+      return;
+    }
+
+    if (line === "/history") {
+      const res = await chat.fetchMessages({ limit: 20 });
+      const chronological = [...res.messages].sort((a, b) => a.seq - b.seq);
+      writeLine("History (last 20):");
+      for (const m of chronological) writeLine(`${m.role}: ${m.body}`);
+      rl.prompt();
+      return;
+    }
+
+    if (line === "/tool random") {
+      const n = Math.floor(Math.random() * 1001);
+      await chat.append({ role: "tool", body: `random_number:${n}` });
+      const reply = `Random number: ${n}`;
+      await chat.append({ role: "agent", body: reply });
+      writeLine(reply);
+      rl.prompt();
+      return;
+    }
+
+    // "Memory" path: recall last random from chat history.
+    if (/\b(number|random)\b/i.test(line) && /\b(remember|recall|what|which)\b/i.test(line)) {
+      const n = await lastRandomFromHistory();
+      const reply = n == null ? "No remembered number yet." : `Remembered number: ${n}`;
+      await chat.append({ role: "agent", body: reply });
+      writeLine(reply);
+      rl.prompt();
+      return;
+    }
+
+    const fallback = `Unknown input. Try "/tool random", then ask "what number did you generate?", or "/exit".`;
+    await chat.append({ role: "agent", body: fallback });
+    writeLine(fallback);
+    rl.prompt();
+  }
+
+  rl.on("line", (line) => {
+    void handleLine(line).catch((err) => {
+      exitCode = 1;
+      writeLine(err instanceof Error ? err.message : String(err));
+      rl.close();
+    });
+  });
+
+  rl.on("close", () => {
+    process.exitCode = exitCode;
+  });
+
+  // Keep the Node process alive until readline closes.
+  await new Promise<void>((resolve) => rl.once("close", () => resolve()));
+  return exitCode;
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const cwd = process.cwd();
   const mode = outputMode(argv);
@@ -981,6 +1114,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   try {
     if (command === "doctor") return await cmdDoctor({ templates, cwd, mode });
     if (command === "run") return await cmdRun({ templates, cwd, argv, mode });
+    if (command === "interactive") return await cmdInteractive({ mode });
     if (command === "tools") return await cmdTools({ argv, mode });
     if (command === "selfcheck") return await cmdSelfCheck({ mode });
 
