@@ -170,7 +170,23 @@ async function readJsonFile<T>(p: string): Promise<T> {
   return JSON.parse(raw) as T;
 }
 
-function ghJson(args: string[]): unknown {
+async function persistGhFailure(args: string[], res: { status: number | null; stdout?: string | null; stderr?: string | null }): Promise<string> {
+  const cwd = process.cwd();
+  const outPath = path.join(cwd, ".agnet", "gh-last-error.json");
+  await ensureDir(path.dirname(outPath));
+  const payload = {
+    ts: new Date().toISOString(),
+    cmd: "gh",
+    args,
+    exitCode: res.status ?? null,
+    stdout: res.stdout ?? "",
+    stderr: res.stderr ?? ""
+  };
+  await fs.writeFile(outPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  return toRelPath(outPath, cwd);
+}
+
+async function ghJson(args: string[]): Promise<unknown> {
   const r = spawnSync("gh", args, {
     cwd: process.cwd(),
     env: { ...process.env, FORCE_COLOR: "0" },
@@ -178,8 +194,8 @@ function ghJson(args: string[]): unknown {
     maxBuffer: 50 * 1024 * 1024
   });
   if ((r.status ?? 1) !== 0) {
-    const details = (r.stderr ?? "").trim() || (r.stdout ?? "").trim() || `exit=${r.status ?? "unknown"}`;
-    throw new Error(`gh ${args.join(" ")} failed: ${details}`);
+    const rel = await persistGhFailure(args, r);
+    throw new Error(`gh failed (exit=${r.status ?? "unknown"}). See: ${rel}`);
   }
   const raw = (r.stdout ?? "").trim();
   if (!raw) return null;
@@ -192,7 +208,7 @@ function ghJson(args: string[]): unknown {
   }
 }
 
-function ghText(args: string[]): string {
+async function ghText(args: string[]): Promise<string> {
   const r = spawnSync("gh", args, {
     cwd: process.cwd(),
     env: { ...process.env, FORCE_COLOR: "0" },
@@ -200,8 +216,8 @@ function ghText(args: string[]): string {
     maxBuffer: 10 * 1024 * 1024
   });
   if ((r.status ?? 1) !== 0) {
-    const details = (r.stderr ?? "").trim() || (r.stdout ?? "").trim() || `exit=${r.status ?? "unknown"}`;
-    throw new Error(`gh ${args.join(" ")} failed: ${details}`);
+    const rel = await persistGhFailure(args, r);
+    throw new Error(`gh failed (exit=${r.status ?? "unknown"}). See: ${rel}`);
   }
   return (r.stdout ?? "").trim();
 }
@@ -249,23 +265,25 @@ async function loadGhIssueCommentsFromFixture(fixturePath: string, cwd: string):
 }
 
 async function loadGhIssueCommentsViaGh(cwd: string): Promise<WorldItemMeta[]> {
-  const repo = readEnv("AGNET_GH_REPO") ?? ghText(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]);
+  const repo =
+    readEnv("AGNET_GH_REPO") ??
+    (await ghText(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]));
   const issueNumbers =
     parseIssueListEnv(readEnv("AGNET_GH_ISSUES")) ??
-    ((): number[] => {
-      const raw = ghText(["issue", "list", "--limit", "20", "--json", "number", "--jq", ".[].number"]);
-      const nums = raw
+    (await (async () => {
+      // NOTE: `--jq` makes stdout a plain newline-separated list of numbers.
+      const raw = await ghText(["issue", "list", "--limit", "20", "--json", "number", "--jq", ".[].number"]);
+      return raw
         .split("\n")
         .map((s) => s.trim())
         .filter(Boolean)
         .map((s) => Number(s))
         .filter((n) => Number.isFinite(n) && n > 0);
-      return nums;
-    })();
+    })());
 
   const out: WorldItemMeta[] = [];
   for (const issueNumber of issueNumbers) {
-    const arr = ghJson(["api", `repos/${repo}/issues/${issueNumber}/comments`]);
+    const arr = await ghJson(["api", `repos/${repo}/issues/${issueNumber}/comments`]);
     if (!Array.isArray(arr)) continue;
     for (const c of arr) {
       const commentId = Number((c as any)?.id);
