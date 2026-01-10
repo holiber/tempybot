@@ -29,6 +29,12 @@ export declare namespace STC {
       [k: string]: unknown;
     };
 
+    /**
+     * Convenience alias for "any collection record".
+     * Used across other specs (Chat, Diagnostics, Policy, etc).
+     */
+    export type AnyRecord = Record;
+
     export type Kind = "flat" | "tree";
 
     export interface Options<
@@ -107,6 +113,21 @@ export declare namespace STC {
 
       /** Parent record for node key (if exists). */
       parentOf(key: K): T | undefined;
+    }
+
+    /** Factory for creating collections (usually provided by Runtime/Workbench). */
+    export interface Factory {
+      create<
+        T extends Record<M>,
+        K extends Key = Key,
+        M extends Meta = Meta
+      >(options?: Options<K, M>): Collection<T, K, M>;
+
+      createTree<
+        T extends Record<M>,
+        K extends Key = Key,
+        M extends Meta = Meta
+      >(options: TreeOptions<K, M>): TreeCollection<T, K, M>;
     }
 
     // ----------------------------

@@ -72,7 +72,7 @@ export declare namespace STC {
       input: unknown;
 
       /** Channel with lifecycle/progress/logs/chunks events. */
-      channel: STC.Channel<unknown>;
+      channel: STC.Channel.Channel<unknown>;
 
       /** Resolves/rejects on call completion. */
       promise: Promise<CallResult<T>>;

@@ -45,6 +45,9 @@ export declare namespace STC {
     }
 
     export interface Event extends STC.Collection.AnyRecord {
+      /** Allow provider-specific fields (Tier 1 convention across records). */
+      [k: string]: unknown;
+
       id?: string; // if stored in a collection; otherwise optional
 
       level: Level;
@@ -77,10 +80,10 @@ export declare namespace STC {
      */
     export interface Sink {
       /** Live stream of diagnostic events. */
-      readonly channel: STC.Channel<Event>;
+      readonly channel: STC.Channel.Channel<Event>;
 
       /** Optional stored history. */
-      readonly history?: STC.Collection<Event>;
+      readonly history?: STC.Collection.Collection<Event>;
 
       /** Emit a new event. */
       emit(event: Event): Promise<void>;

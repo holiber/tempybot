@@ -76,7 +76,7 @@ export declare namespace STC {
        * Open a streaming channel for a call (logs/progress/chunks).
        * Implementations should apply Channel safety defaults (caps/cleanup/buffer).
        */
-      openChannel(request: STC.ApiClient.CallRequest): Promise<STC.Channel<unknown>>;
+      openChannel(request: STC.ApiClient.CallRequest): Promise<STC.Channel.Channel<unknown>>;
 
       /** Close/cleanup underlying resources (idempotent). */
       dispose(): Promise<void>;

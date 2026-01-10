@@ -1,88 +1,25 @@
-export type ChannelId = string;
-export type Unsubscribe = () => void;
+import type { STC } from "../types/stc.js";
 
-export type ChannelLevel = "error" | "warn" | "info" | "log" | "debug";
-export type ChannelState = "open" | "closing" | "closed";
+export type ChannelId = STC.Channel.Id;
+export type Unsubscribe = STC.Channel.Unsubscribe;
 
-export type ChannelSystemEventType =
-  | "channel.opened"
-  | "channel.params"
-  | "channel.progress"
-  | "channel.closed";
+export type ChannelLevel = STC.Channel.Level;
+export type ChannelState = STC.Channel.State;
 
-export type ChannelCloseCode = number | string;
+export type ChannelSystemEventType = STC.Channel.SystemEventType;
+export type ChannelCloseCode = STC.Channel.CloseCode;
 
-export interface ChannelDataEvent<T> {
-  kind: "data";
-  data: T;
-  seq?: number;
-  tsMs?: number;
-}
+export type ChannelDataEvent<T> = STC.Channel.DataEvent<T>;
+export type ChannelSystemEvent = STC.Channel.SystemEvent;
+export type ChannelEvent<T> = STC.Channel.Event<T>;
 
-export interface ChannelSystemEvent {
-  kind: "system";
-  type: ChannelSystemEventType;
-  seq?: number;
-  tsMs?: number;
-  payload?: unknown;
-}
+export type ChannelProgressPayload = STC.Channel.ProgressPayload;
 
-export type ChannelEvent<T> = ChannelDataEvent<T> | ChannelSystemEvent;
+export type ChannelParams = STC.Channel.Params;
+export type ChannelCreateOptions = STC.Channel.CreateOptions;
+export type ChannelSubscribeOptions = STC.Channel.SubscribeOptions;
 
-export interface ChannelProgressPayload {
-  status?: "queued" | "processing" | "done" | "failed" | "canceled";
-  progress?: number;
-  stageCode?: string;
-  stageTitle?: string;
-  subStageCode?: string;
-  subStageTitle?: string;
-  metrics?: {
-    cpu?: number;
-    memBytes?: number;
-    ioBytes?: number;
-    netBytes?: number;
-    processes?: number;
-  };
-}
-
-export interface ChannelParams {
-  id: ChannelId;
-  state: ChannelState;
-  canRead: boolean;
-  canWrite: boolean;
-  encoding: "json" | "bson" | "binary";
-  ttlMs?: number;
-  bufferMs: number;
-  caps: {
-    maxSubscriptions: number;
-    warnAtRatio: number;
-  };
-}
-
-export interface ChannelCreateOptions {
-  id?: ChannelId;
-  canRead?: boolean;
-  canWrite?: boolean;
-  encoding?: "json" | "bson" | "binary";
-  ttlMs?: number;
-  bufferMs?: number;
-  maxSubscriptions?: number;
-  warnAtRatio?: number;
-  signal?: AbortSignal;
-}
-
-export interface ChannelSubscribeOptions {
-  includeSystem?: boolean;
-  signal?: AbortSignal;
-}
-
-export interface IChannel<T> {
-  getParams(): ChannelParams;
-  subscribe(handler: (event: ChannelEvent<T>) => void, options?: ChannelSubscribeOptions): Unsubscribe;
-  send(data: T): Promise<void>;
-  progress(payload: ChannelProgressPayload): Promise<void>;
-  close(info?: { code?: ChannelCloseCode; reason?: string }): Promise<void>;
-}
+export type IChannel<T> = STC.Channel.Channel<T>;
 
 function createId(): ChannelId {
   // Good enough for in-memory reference impl.
@@ -293,7 +230,7 @@ export class InMemoryChannel<T> implements IChannel<T> {
   }
 }
 
-export class ChannelFactory {
+export class ChannelFactory implements STC.Channel.Factory {
   private readonly defaults: Pick<ChannelParams, "bufferMs" | "caps">;
 
   public constructor(options?: {
@@ -310,7 +247,7 @@ export class ChannelFactory {
     };
   }
 
-  public create<T>(options?: ChannelCreateOptions): InMemoryChannel<T> {
+  public create<T>(options?: ChannelCreateOptions): STC.Channel.Channel<T> {
     return new InMemoryChannel<T>({
       bufferMs: options?.bufferMs ?? this.defaults.bufferMs,
       warnAtRatio: options?.warnAtRatio ?? this.defaults.caps.warnAtRatio,
