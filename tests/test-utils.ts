@@ -55,8 +55,13 @@ export class CliSession {
 
     this.exitPromise = new Promise((resolve) => {
       this.term.onExit((e) => {
-        this.exitInfo = { exitCode: e.exitCode, signal: e.signal };
-        resolve(this.exitInfo);
+        // node-pty types allow undefined; normalize for deterministic assertions.
+        const info = {
+          exitCode: typeof e.exitCode === "number" ? e.exitCode : 0,
+          signal: typeof e.signal === "number" ? e.signal : 0,
+        };
+        this.exitInfo = info;
+        resolve(info);
       });
     });
 
