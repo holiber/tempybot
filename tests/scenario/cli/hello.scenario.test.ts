@@ -8,6 +8,8 @@ test("cli scenario: asks name and greets", async () => {
 
   try {
     await cli.waitFor("What's your name");
+    // Give the recording and userlike mode a real "settle" moment.
+    await userSleep();
     await userSleep(600);
     await cli.typeCharByChar("anonymous", () => userTypeDelay());
     cli.write("\r");
@@ -21,6 +23,9 @@ test("cli scenario: asks name and greets", async () => {
     expect(out).toContain("Hello anonymous!");
     expect(out).toContain("\u001b[40m"); // dark background
     expect(out).toContain("\u001b[92m"); // bright green foreground
+
+    // End-of-scenario settle (still inside the recorded session for CLI).
+    await userSleep();
   } finally {
     cli.kill();
   }

@@ -11,6 +11,9 @@ test("web scenario: logs in and sees greetings", async () => {
     await web.page.getByTestId("auth-form").waitFor({ state: "visible" });
     expect(await web.page.getByTestId("auth-form").isVisible()).toBe(true);
 
+    // Give the recording and userlike mode a real "settle" moment.
+    await userSleep();
+
     await userType(web.page, '[data-testid="login-input"]', "hello word");
     await userType(web.page, '[data-testid="password-input"]', "hello word");
     await userSleep(600);
@@ -30,8 +33,10 @@ test("web scenario: logs in and sees greetings", async () => {
     await web.page.getByTestId("greetings-title").hover();
     await userSleep(1200);
   } finally {
-    await server.close();
     await web.close();
+    // Delay after "stop recording" signal (context close finalizes the video).
+    await userSleep();
+    await server.close();
   }
 });
 

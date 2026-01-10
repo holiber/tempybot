@@ -161,6 +161,14 @@ function trySpawnSync(cmd, args, options = {}) {
   return { ok: true, stdout: r.stdout, stderr: r.stderr };
 }
 
+function sleepSync(ms) {
+  // Used only for tiny post-recording delays.
+  // Atomics.wait blocks without a busy loop.
+  const sab = new SharedArrayBuffer(4);
+  const ia = new Int32Array(sab);
+  Atomics.wait(ia, 0, 0, ms);
+}
+
 function formatSeconds(sec) {
   if (!Number.isFinite(sec)) return "unknown";
   if (sec < 60) return `${sec.toFixed(2)}s`;
@@ -266,6 +274,10 @@ function runCliUserlikeWithVideo(file) {
     env: { ...process.env, SCENARIO_MODE: "userlike", SCENARIO_TIMINGS: "1" },
   });
   if ((rec.status ?? 1) !== 0) return { ok: false, outDir, castPath, mp4Path: null, usedVideo: true };
+
+  // Delay after "stop recording" signal (asciinema process has exited).
+  // This helps avoid edge cases where artifacts are measured before being fully flushed.
+  sleepSync(1000);
 
   printTimingsSummary(file, timingsPath);
 

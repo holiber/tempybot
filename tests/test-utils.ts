@@ -105,7 +105,7 @@ export type WebDeviceMode = "desktop" | "mobile";
 export const SCENARIO_WEB_DEVICE: WebDeviceMode =
   process.env.SCENARIO_WEB_DEVICE === "mobile" ? "mobile" : "desktop";
 
-export async function userSleep(ms = 800): Promise<void> {
+export async function userSleep(ms = 2000): Promise<void> {
   if (SCENARIO_MODE === "smoke") return;
   registerScenarioTimingsSummary();
   const started = performance.now();
