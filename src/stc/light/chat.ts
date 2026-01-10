@@ -1,69 +1,17 @@
-import { ChannelFactory, type ChannelMeta, type IChannel } from "./channel.js";
+import type { STC } from "../../types/light/stc.js";
+import { ChannelFactory, type ChannelMeta } from "./channel.js";
 
-export type ChatMeta<M extends Record<string, unknown> = Record<string, unknown>> = M;
-
-export type ChatRole = "system" | "user" | "agent" | "tool";
-export type ChatType = "issue" | "pr" | "comments" | "task" | "job" | "log" | "other";
-
-export interface ChatLimits {
-  maxMessages?: number;
-}
-
-export interface ChatDescriptor<M extends ChatMeta = ChatMeta> {
-  id: string;
-  chatType?: ChatType;
-  title?: string;
-  source?: string;
-  limits?: ChatLimits;
-  meta?: M;
-}
-
-export interface ChatMessage<M extends ChatMeta = ChatMeta> {
-  id: string;
-  seq: number;
-  role: ChatRole;
-  body: string;
-  ts: string;
-  meta?: M;
-}
-
-export interface ChatCursor {
-  cursor: string;
-}
-
-export interface ChatFetchOptions {
-  limit?: number;
-  before?: ChatCursor;
-}
-
-export interface ChatFetchResult<M extends ChatMeta = ChatMeta> {
-  messages: Array<ChatMessage<M>>;
-  page?: { hasMore?: boolean; next?: ChatCursor };
-  meta?: M;
-}
-
-export interface ChatAppendInput<M extends ChatMeta = ChatMeta> {
-  role: ChatRole;
-  body: string;
-  meta?: M;
-}
-
-export interface IChat<M extends ChatMeta = ChatMeta> {
-  getDescriptor(): Promise<ChatDescriptor<M>>;
-
-  readonly channel: IChannel<
-    {
-      type: string;
-      payload?: unknown;
-      meta?: M;
-    },
-    M
-  >;
-
-  fetchMessages(options?: ChatFetchOptions): Promise<ChatFetchResult<M>>;
-  append(input: ChatAppendInput<M>): Promise<ChatMessage<M>>;
-  updateMyMessage(messageId: string, patch: { body?: string; meta?: M }): Promise<ChatMessage<M>>;
-}
+export type ChatMeta<M extends Record<string, unknown> = Record<string, unknown>> = STC.Chat.Meta<M>;
+export type ChatRole = STC.Chat.Role;
+export type ChatType = STC.Chat.ChatType;
+export type ChatLimits = STC.Chat.Limits;
+export type ChatDescriptor<M extends ChatMeta = ChatMeta> = STC.Chat.Descriptor<M>;
+export type ChatMessage<M extends ChatMeta = ChatMeta> = STC.Chat.Message<M>;
+export type ChatCursor = STC.Chat.Cursor;
+export type ChatFetchOptions = STC.Chat.FetchOptions;
+export type ChatFetchResult<M extends ChatMeta = ChatMeta> = STC.Chat.FetchResult<M>;
+export type ChatAppendInput<M extends ChatMeta = ChatMeta> = STC.Chat.AppendInput<M>;
+export type IChat<M extends ChatMeta = ChatMeta> = STC.Chat.Chat<M>;
 
 function createId(prefix: string): string {
   return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
@@ -80,7 +28,7 @@ function decodeCursor(c: ChatCursor): number | undefined {
 }
 
 export class InMemoryChat<M extends ChatMeta = ChatMeta> implements IChat<M> {
-  public readonly channel: IChannel<
+  public readonly channel: STC.Channel.Channel<
     {
       type: string;
       payload?: unknown;
@@ -95,7 +43,7 @@ export class InMemoryChat<M extends ChatMeta = ChatMeta> implements IChat<M> {
 
   public constructor(init: {
     descriptor: ChatDescriptor<M>;
-    channel?: IChannel<{ type: string; payload?: unknown; meta?: M }, M>;
+    channel?: STC.Channel.Channel<{ type: string; payload?: unknown; meta?: M }, M>;
     channelMeta?: ChannelMeta;
     caps?: { canRead?: boolean; canWrite?: boolean };
   }) {

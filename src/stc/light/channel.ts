@@ -1,43 +1,21 @@
-export type ChannelId = string;
-export type Unsubscribe = () => void;
-
-export type ChannelMeta<M extends Record<string, unknown> = Record<string, unknown>> = M;
-
-export type ChannelEvent<T = unknown, M extends ChannelMeta = ChannelMeta> =
-  | { kind: "data"; data: T; meta?: M }
-  | { kind: "system"; type: string; payload?: unknown; meta?: M };
-
-export interface ChannelCapabilities {
-  canRead: boolean;
-  canWrite: boolean;
-}
-
-export interface ChannelCreateOptions<M extends ChannelMeta = ChannelMeta> {
-  id?: ChannelId;
-  caps?: Partial<ChannelCapabilities>;
-  meta?: M;
-  signal?: AbortSignal;
-}
-
-export interface ChannelSubscribeOptions {
-  signal?: AbortSignal;
-}
-
-export interface IChannel<T = unknown, M extends ChannelMeta = ChannelMeta> {
-  readonly id: ChannelId;
-  readonly caps: ChannelCapabilities;
-  readonly meta?: M;
-
-  subscribe(handler: (event: ChannelEvent<T, M>) => void, options?: ChannelSubscribeOptions): Unsubscribe;
-  send(data: T, meta?: M): Promise<void> | void;
-  close(info?: { code?: string | number; reason?: string }): Promise<void> | void;
-}
+import type { STC } from "../../types/light/stc.js";
 
 function createId(): ChannelId {
   return `ch_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
 }
 
-export class InMemoryChannel<T = unknown, M extends ChannelMeta = ChannelMeta> implements IChannel<T, M> {
+export type ChannelId = STC.Channel.Id;
+export type Unsubscribe = STC.Channel.Unsubscribe;
+export type ChannelMeta<M extends Record<string, unknown> = Record<string, unknown>> = STC.Channel.Meta<M>;
+export type ChannelEvent<T = unknown, M extends ChannelMeta = ChannelMeta> = STC.Channel.Event<T, M>;
+export type ChannelCapabilities = STC.Channel.Capabilities;
+export type ChannelCreateOptions<M extends ChannelMeta = ChannelMeta> = STC.Channel.CreateOptions<M>;
+export type ChannelSubscribeOptions = STC.Channel.SubscribeOptions;
+export type IChannel<T = unknown, M extends ChannelMeta = ChannelMeta> = STC.Channel.Channel<T, M>;
+
+export class InMemoryChannel<T = unknown, M extends ChannelMeta = ChannelMeta>
+  implements STC.Channel.Channel<T, M>
+{
   public readonly id: ChannelId;
   public readonly caps: ChannelCapabilities;
   public readonly meta?: M;
@@ -121,7 +99,9 @@ export class InMemoryChannel<T = unknown, M extends ChannelMeta = ChannelMeta> i
 }
 
 export class ChannelFactory {
-  public create<T = unknown, M extends ChannelMeta = ChannelMeta>(options?: ChannelCreateOptions<M>): InMemoryChannel<T, M> {
+  public create<T = unknown, M extends ChannelMeta = ChannelMeta>(
+    options?: ChannelCreateOptions<M>
+  ): STC.Channel.Channel<T, M> {
     return new InMemoryChannel<T, M>(options);
   }
 }

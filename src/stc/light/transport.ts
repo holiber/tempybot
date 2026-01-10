@@ -1,65 +1,20 @@
-import { ChannelFactory, type ChannelMeta, type IChannel } from "./channel.js";
+import type { STC } from "../../types/light/stc.js";
+import { ChannelFactory, type ChannelMeta } from "./channel.js";
 
-export type TransportName = string;
-export type TransportCarrier = "http" | "ws" | "stdio" | "sse" | "poll";
-export type TransportProtocol = "rest";
+export type TransportName = STC.Transport.Name;
+export type TransportCarrier = STC.Transport.Carrier;
+export type TransportProtocol = STC.Transport.Protocol;
+export type TransportEndpoint = STC.Transport.Endpoint;
+export type TransportAuthConfig = STC.Transport.AuthConfig;
+export type TransportMeta<M extends Record<string, unknown> = Record<string, unknown>> = STC.Transport.Meta<M>;
+export type TransportOptions<M extends TransportMeta = TransportMeta> = STC.Transport.Options<M>;
 
-export interface TransportEndpoint {
-  url: string;
-}
+export type TransportCallRequest = STC.ApiClient.CallRequest;
+export type TransportCallResult = STC.ApiClient.CallResult;
+export type ITransportClient<M extends TransportMeta = TransportMeta> = STC.Transport.Client<M>;
+export type TransportFactory = STC.Transport.Factory;
 
-export type TransportAuthConfig =
-  | { kind: "none" }
-  | { kind: "bearer"; token: string }
-  | { kind: "headers"; headers: Record<string, string> }
-  | { kind: "apiKey"; key: string; header?: string; queryParam?: string };
-
-export type TransportMeta<M extends Record<string, unknown> = Record<string, unknown>> = M;
-
-export interface TransportOptions<M extends TransportMeta = TransportMeta> {
-  name?: TransportName;
-  carrier: TransportCarrier;
-  protocol: TransportProtocol;
-  endpoint: TransportEndpoint;
-  auth?: TransportAuthConfig;
-  mode?: "dev" | "prod";
-  meta?: M;
-  diagnostics?: {
-    emit: (event: { level: "error" | "warn" | "info" | "log" | "debug"; message: string; tsMs: number }) =>
-      | Promise<void>
-      | void;
-  };
-}
-
-export interface TransportCallRequest {
-  requestId: string;
-  method: string;
-  input: unknown;
-  channel: IChannel<unknown>;
-}
-
-export type TransportCallResult<T = unknown> =
-  | { status: "ok"; value: T }
-  | { status: "error"; error: { message: string; code?: string | number; stack?: string; origin?: "client" | "server" | "transport" } }
-  | { status: "canceled" | "timeout"; error?: { message: string } };
-
-export interface ITransportClient<M extends TransportMeta = TransportMeta> {
-  readonly options: Readonly<TransportOptions<M>>;
-  call(request: TransportCallRequest): Promise<TransportCallResult>;
-  openChannel(request: TransportCallRequest): Promise<IChannel<unknown, M>>;
-  dispose(): Promise<void>;
-}
-
-export interface TransportFactory {
-  createClient<M extends TransportMeta = TransportMeta>(
-    options: TransportOptions<M>,
-    impl?: {
-      call?: (request: TransportCallRequest) => Promise<TransportCallResult>;
-    }
-  ): ITransportClient<M>;
-}
-
-export class LocalTransportClient<M extends TransportMeta = TransportMeta> implements ITransportClient<M> {
+export class LocalTransportClient<M extends TransportMeta = TransportMeta> implements STC.Transport.Client<M> {
   public readonly options: Readonly<TransportOptions<M>>;
 
   private readonly channels: ChannelFactory;
@@ -78,11 +33,17 @@ export class LocalTransportClient<M extends TransportMeta = TransportMeta> imple
 
   public async call(request: TransportCallRequest): Promise<TransportCallResult> {
     if (this.disposed) {
-      return { status: "error", error: { message: "Transport client is disposed", origin: "client" } };
+      return {
+        status: "error",
+        error: { message: "Transport client is disposed", origin: "client" }
+      } as TransportCallResult;
     }
     try {
       if (!this.callImpl) {
-        return { status: "error", error: { message: "No call implementation configured", origin: "client" } };
+        return {
+          status: "error",
+          error: { message: "No call implementation configured", origin: "client" }
+        } as TransportCallResult;
       }
       return await this.callImpl(request);
     } catch (err) {
@@ -95,21 +56,21 @@ export class LocalTransportClient<M extends TransportMeta = TransportMeta> imple
           stack: e?.stack,
           origin: "transport"
         }
-      };
+      } as TransportCallResult;
     }
   }
 
-  public async openChannel(_request: TransportCallRequest): Promise<IChannel<unknown, M>> {
+  public async openChannel(_request: TransportCallRequest): Promise<STC.Channel.Channel<unknown, M>> {
     if (this.disposed) {
       return this.channels.create({
         caps: { canRead: false, canWrite: false },
         meta: this.options.meta as ChannelMeta as any
-      });
+      }) as STC.Channel.Channel<unknown, M>;
     }
     return this.channels.create({
       caps: { canRead: true, canWrite: true },
       meta: this.options.meta as ChannelMeta as any
-    });
+    }) as STC.Channel.Channel<unknown, M>;
   }
 
   public async dispose(): Promise<void> {
@@ -122,8 +83,8 @@ export class DefaultTransportFactory implements TransportFactory {
   public createClient<M extends TransportMeta = TransportMeta>(
     options: TransportOptions<M>,
     impl?: { call?: (request: TransportCallRequest) => Promise<TransportCallResult> }
-  ): ITransportClient<M> {
-    return new LocalTransportClient<M>({ options, call: impl?.call });
+  ): STC.Transport.Client<M> {
+    return new LocalTransportClient<M>({ options, call: impl?.call }) as STC.Transport.Client<M>;
   }
 }
 

@@ -1,63 +1,29 @@
-export type CollectionMeta<M extends Record<string, unknown> = Record<string, unknown>> = M;
-export type CollectionKey = string | number;
+import type { STC } from "../../types/light/stc.js";
 
-export type CollectionRecord<M extends CollectionMeta = CollectionMeta> = {
-  meta?: M;
-  [k: string]: unknown;
-};
-
-export type CollectionKind = "flat" | "tree";
-
-export interface CollectionOptions<K extends CollectionKey = CollectionKey, M extends CollectionMeta = CollectionMeta> {
-  name?: string;
-  keyField?: string;
-  meta?: M;
-}
-
-export interface TreeCollectionOptions<K extends CollectionKey = CollectionKey, M extends CollectionMeta = CollectionMeta>
-  extends CollectionOptions<K, M> {
-  kind: "tree";
-  parentField: string;
-}
-
-export type UpsertOp = "create" | "update";
-
-export interface UpsertResult<K extends CollectionKey> {
-  key: K;
-  op: UpsertOp;
-}
-
-export interface ICollection<
+export type CollectionMeta<M extends Record<string, unknown> = Record<string, unknown>> = STC.Collection.Meta<M>;
+export type CollectionKey = STC.Collection.Key;
+export type CollectionRecord<M extends CollectionMeta = CollectionMeta> = STC.Collection.Record<M>;
+export type CollectionKind = STC.Collection.Kind;
+export type CollectionOptions<
+  K extends CollectionKey = CollectionKey,
+  M extends CollectionMeta = CollectionMeta
+> = STC.Collection.Options<K, M>;
+export type TreeCollectionOptions<
+  K extends CollectionKey = CollectionKey,
+  M extends CollectionMeta = CollectionMeta
+> = STC.Collection.TreeOptions<K, M>;
+export type UpsertOp = STC.Collection.UpsertOp;
+export type UpsertResult<K extends CollectionKey> = STC.Collection.UpsertResult<K>;
+export type ICollection<
   T extends CollectionRecord<M>,
   K extends CollectionKey = CollectionKey,
   M extends CollectionMeta = CollectionMeta
-> {
-  readonly kind: CollectionKind;
-  readonly size: number;
-  readonly meta?: M;
-
-  get(key: K): T | undefined;
-  has(key: K): boolean;
-
-  upsert(record: T, key?: K): UpsertResult<K>;
-
-  delete(key: K): boolean;
-  clear(): void;
-
-  list(): T[];
-  values(): Iterable<T>;
-  keys(): Iterable<K>;
-}
-
-export interface ITreeCollection<
+> = STC.Collection.Collection<T, K, M>;
+export type ITreeCollection<
   T extends CollectionRecord<M>,
   K extends CollectionKey = CollectionKey,
   M extends CollectionMeta = CollectionMeta
-> extends ICollection<T, K, M> {
-  readonly kind: "tree";
-  childrenOf(parentKey: K): T[];
-  parentOf(key: K): T | undefined;
-}
+> = STC.Collection.TreeCollection<T, K, M>;
 
 function inferKey<K extends CollectionKey>(record: Record<string, unknown>, keyField: string): K | undefined {
   const v = record[keyField] as K | undefined;
@@ -69,7 +35,7 @@ export class InMemoryCollection<
   T extends CollectionRecord<M>,
   K extends CollectionKey = CollectionKey,
   M extends CollectionMeta = CollectionMeta
-> implements ICollection<T, K, M>
+> implements STC.Collection.Collection<T, K, M>
 {
   public readonly kind: CollectionKind = "flat";
   public readonly meta?: M;
@@ -140,7 +106,7 @@ export class InMemoryTreeCollection<
   T extends CollectionRecord<M>,
   K extends CollectionKey = CollectionKey,
   M extends CollectionMeta = CollectionMeta
-> extends InMemoryCollection<T, K, M> implements ITreeCollection<T, K, M> {
+> extends InMemoryCollection<T, K, M> implements STC.Collection.TreeCollection<T, K, M> {
   public override readonly kind: "tree" = "tree";
   private readonly parentField: string;
 
@@ -170,7 +136,7 @@ export class InMemoryTreeCollection<
 export class CollectionFactory {
   public create<T extends CollectionRecord<M>, K extends CollectionKey = CollectionKey, M extends CollectionMeta = CollectionMeta>(
     options?: CollectionOptions<K, M>
-  ): InMemoryCollection<T, K, M> {
+  ): STC.Collection.Collection<T, K, M> {
     return new InMemoryCollection<T, K, M>(options);
   }
 
