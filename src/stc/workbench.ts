@@ -1,5 +1,5 @@
 // workbench-light.ts
-import type { AnySchema, Schema } from "./schema";
+import type { AnySchema, Schema } from "./schema.js";
 
 /**
  * Minimal module system + event bus + schema registry + tRPC-like procedure builder.
@@ -309,7 +309,9 @@ export const procedure = (() => {
 
 const WB_REF = Symbol("wb.moduleRef");
 
-export type ApiDef = Record<string, AnyOp | ApiDef | ModuleRef<any>>;
+export interface ApiDef {
+  [key: string]: AnyOp | ApiDef | ModuleRef<any>;
+}
 export type ModuleFactory<D extends ApiDef> = (ctx: ModuleCtx) => { api: D };
 
 type ApiFromDef<D> =
