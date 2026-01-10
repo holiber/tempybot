@@ -10,7 +10,7 @@
 ### Parse agent markdown in a JS project
 
 ```js
-import { parseAgentMdFromString } from "tempybot";
+import { agentTemplateToJson } from "tempybot";
 
 const md = `
 # My Agent
@@ -22,7 +22,7 @@ You are a helpful assistant.
 - Be concise.
 `;
 
-const definition = parseAgentMdFromString(md);
+const definition = agentTemplateToJson(md);
 console.log(definition);
 ```
 

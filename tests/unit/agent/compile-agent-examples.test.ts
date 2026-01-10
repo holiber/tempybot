@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseAgentMd } from "../../../src/agent/parse-agent-md.js";
-import type { AgentDefinition } from "../../../src/agent/types.js";
+import { parseAgentMd } from "../../../src/md-parser/parse-agent-md.js";
+import type { AgentDefinition } from "../../../src/md-parser/types.js";
 
 type StableJson = null | boolean | number | string | StableJson[] | { [k: string]: StableJson };
 
