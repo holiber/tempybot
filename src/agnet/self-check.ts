@@ -2,8 +2,8 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 
-import { executeGh } from "./cerebellum.js";
-import { McpStdioClient, openApiMcpServerCommand } from "./mcp-stdio-client.js";
+import { executeGh } from "./cerebellum.ts";
+import { McpStdioClient, openApiMcpServerCommand } from "./mcp-stdio-client.ts";
 
 export type SelfCheckItem =
   | { name: string; ok: true; required: boolean; skipped?: false; details?: Record<string, unknown> }
