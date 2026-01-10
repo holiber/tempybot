@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import path from "node:path";
-import { CliSession, userSleep, userTypeDelay } from "../../../test-utils.js";
+import { CliSession, userSleep, userTypeDelay } from "../../test-utils.js";
 
 test("cli scenario (integration): asks name and greets", async () => {
   // In a real project this scenario would validate gated integrations.

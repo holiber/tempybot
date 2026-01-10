@@ -5,6 +5,14 @@ import fs from "node:fs";
 import path from "node:path";
 
 /**
+ * Scenario-only test utilities.
+ *
+ * IMPORTANT:
+ * - PTY-based terminals (node-pty) can be flaky on CI depending on the runner image.
+ * - Do NOT use CliSession in unit tests. Prefer spawnSync/execFile for unit-level CLI testing.
+ */
+
+/**
  * SCENARIO_MODE:
  * - "smoke"    -> no delays, fastest possible execution
  * - "userlike" -> real pauses and typing delays (human-like)
@@ -121,8 +129,6 @@ export async function userTypeDelay(ms = 90): Promise<void> {
   await userSleep(ms);
 }
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
 /**
  * CliSession
  *
@@ -132,6 +138,8 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 export class CliSession {
   private term: pty.IPty;
   private buffer = "";
+  private exitInfo: { exitCode: number; signal: number } | null = null;
+  private exitPromise: Promise<{ exitCode: number; signal: number }>;
 
   constructor(cmd: string, args: string[], cwd: string) {
     this.term = pty.spawn(cmd, args, {
@@ -140,6 +148,18 @@ export class CliSession {
       cols: 120,
       rows: 30,
       env: { ...process.env, FORCE_COLOR: "1" },
+    });
+
+    this.exitPromise = new Promise((resolve) => {
+      this.term.onExit((e) => {
+        // node-pty types allow undefined; normalize for deterministic assertions.
+        const info = {
+          exitCode: typeof e.exitCode === "number" ? e.exitCode : 0,
+          signal: typeof e.signal === "number" ? e.signal : 0,
+        };
+        this.exitInfo = info;
+        resolve(info);
+      });
     });
 
     this.term.onData((data) => {
@@ -159,6 +179,18 @@ export class CliSession {
     this.term.kill();
   }
 
+  async waitForExit(timeoutMs = 20_000): Promise<{ exitCode: number; signal: number }> {
+    if (this.exitInfo) return this.exitInfo;
+
+    const timeout = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Timeout waiting for process exit.\n\nCLI output so far:\n${this.buffer}`));
+      }, timeoutMs);
+    });
+
+    return await Promise.race([this.exitPromise, timeout]);
+  }
+
   async typeCharByChar(text: string, onEachChar?: () => Promise<void>): Promise<void> {
     for (const ch of text) {
       this.term.write(ch);
@@ -167,16 +199,26 @@ export class CliSession {
   }
 
   async waitFor(pattern: RegExp | string, timeoutMs = 20_000): Promise<void> {
-    const started = Date.now();
-    while (Date.now() - started < timeoutMs) {
+    const matches = () => {
       const content = this.buffer;
-      const matched =
-        typeof pattern === "string" ? content.includes(pattern) : pattern.test(content);
-      if (matched) return;
-      await sleep(50);
-    }
+      return typeof pattern === "string" ? content.includes(pattern) : pattern.test(content);
+    };
 
-    throw new Error(`Timeout waiting for: ${String(pattern)}\n\nCLI output so far:\n${this.buffer}`);
+    if (matches()) return;
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        dispose.dispose();
+        reject(new Error(`Timeout waiting for: ${String(pattern)}\n\nCLI output so far:\n${this.buffer}`));
+      }, timeoutMs);
+
+      const dispose = this.term.onData(() => {
+        if (!matches()) return;
+        clearTimeout(timer);
+        dispose.dispose();
+        resolve();
+      });
+    });
   }
 }
 
@@ -191,8 +233,7 @@ export async function startWebSession(): Promise<WebSession> {
   const browser = await chromium.launch({ headless: true });
 
   let context: BrowserContext;
-  const recordVideoDir =
-    SCENARIO_MODE === "userlike" ? process.env.E2E_WEB_VIDEO_DIR : undefined;
+  const recordVideoDir = SCENARIO_MODE === "userlike" ? process.env.E2E_WEB_VIDEO_DIR : undefined;
 
   if (SCENARIO_WEB_DEVICE === "mobile") {
     const device = devices["iPhone 14"];

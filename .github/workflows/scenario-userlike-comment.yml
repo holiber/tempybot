@@ -28,7 +28,7 @@ jobs:
           filters: |
             should_run:
               - "tests/scenario/**/*.scenario.test.ts"
-              - "tests/test-utils.ts"
+              - "tests/scenario/test-utils.ts"
               - "scripts/run-scenarios.mjs"
               - "vitest.scenario.config.ts"
 
@@ -45,7 +45,7 @@ jobs:
           CHANGED="$(git diff --name-only "$BASE" "$HEAD")"
 
           # If shared scenario infra changed, run all scenario tests.
-          if echo "$CHANGED" | grep -E -q '^(tests/test-utils\.ts|scripts/run-scenarios\.mjs|vitest\.scenario\.config\.ts)$'; then
+          if echo "$CHANGED" | grep -E -q '^(tests/scenario/test-utils\.ts|scripts/run-scenarios\.mjs|vitest\.scenario\.config\.ts)$'; then
             ALL="$(git ls-files 'tests/scenario/**/*.scenario.test.ts')"
             printf "%s\n" "$ALL" > /tmp/scenario_files.txt
           else
