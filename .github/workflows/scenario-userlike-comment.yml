@@ -1,4 +1,4 @@
-name: scenario userlike (affected)
+name: scenario
 
 on:
   pull_request:
@@ -8,21 +8,28 @@ permissions:
   pull-requests: write
 
 jobs:
-  detect:
-    name: detect changed scenarios
+  userlike:
+    name: scenario(userlike)
     runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.filter.outputs.should_run }}
-      files: ${{ steps.files.outputs.files }}
-      files_md: ${{ steps.files.outputs.files_md }}
+    if: github.event_name == 'pull_request'
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Paths filter
-        id: filter
+      - name: Sticky PR comment (in progress)
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: scenario-testing
+          message: |
+            ⏳ **scenario testing: in progress**
+
+            **Workflow run:** `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`
+
+      - name: Detect changed scenarios
+        id: detect
         uses: dorny/paths-filter@v3
         with:
           filters: |
@@ -32,9 +39,9 @@ jobs:
               - "scripts/run-scenarios.mjs"
               - "vitest.scenario.config.ts"
 
-      - name: Compute affected files
+      - name: Compute affected scenario files
         id: files
-        if: steps.filter.outputs.should_run == 'true'
+        if: steps.detect.outputs.should_run == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -71,27 +78,6 @@ jobs:
           done < /tmp/scenario_files.txt >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
-  run:
-    name: scenario testing (userlike, affected only)
-    runs-on: ubuntu-latest
-    needs: detect
-    if: needs.detect.outputs.should_run == 'true' && needs.detect.outputs.files != ''
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Sticky PR comment (in progress)
-        uses: marocchino/sticky-pull-request-comment@v2
-        with:
-          header: scenario-testing
-          message: |
-            ⏳ **scenario testing: in progress**
-
-            **Scenarios queued:**
-            ${{ needs.detect.outputs.files_md }}
-
-            **Workflow run:** `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -123,8 +109,13 @@ jobs:
       - name: Run affected scenarios in userlike mode
         env:
           SCENARIO_MODE: userlike
-          SCENARIO_FILES: ${{ needs.detect.outputs.files }}
-        run: node scripts/run-scenarios.mjs
+          SCENARIO_FILES: ${{ steps.files.outputs.files }}
+        run: |
+          if [ -z "${SCENARIO_FILES:-}" ]; then
+            echo "No scenario files changed; skipping userlike scenarios."
+            exit 0
+          fi
+          node scripts/run-scenarios.mjs
 
       - name: Upload userlike artifacts (videos)
         if: always()
@@ -134,7 +125,7 @@ jobs:
           path: artifacts/user-style-e2e
 
       - name: Sticky PR comment (done)
-        if: success()
+        if: success() && github.event_name == 'pull_request'
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           header: scenario-testing
@@ -142,13 +133,13 @@ jobs:
             ✅ **scenario testing: done**
 
             **Scenarios executed:**
-            ${{ needs.detect.outputs.files_md }}
+            ${{ steps.files.outputs.files_md }}
 
             **Artifacts:** download `scenario-userlike-videos` from the workflow run.
             **Workflow run:** `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`
 
       - name: Sticky PR comment (fail)
-        if: failure()
+        if: failure() && github.event_name == 'pull_request'
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           header: scenario-testing
@@ -156,11 +147,39 @@ jobs:
             ❌ **scenario testing: failed**
 
             **Scenarios attempted:**
-            ${{ needs.detect.outputs.files_md }}
+            ${{ steps.files.outputs.files_md }}
 
             **Next steps:**
             - Open the workflow run logs to see the failure
             - Download `scenario-userlike-videos` artifacts (if any) for visual debugging
 
             **Workflow run:** `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`
+
+  smokecheck:
+    name: scenario(smokecheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright (with deps)
+        run: npx playwright install --with-deps
+
+      - name: Scenario tests (smokecheck)
+        run: npm run test:scenario:smoke
+
+      - name: Upload smokecheck logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scenario-smokecheck-logs
+          path: .cache/smokecheck
 

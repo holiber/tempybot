@@ -23,6 +23,7 @@ Project layout (repository root):
 │  ├─ cli.ts                     # `tempybot` CLI (agent parsing command)
 │  ├─ server.ts                  # Minimal HTTP server used by e2e/scenario tests
 │  ├─ hello.ts                   # Small demo module used by tests/examples
+│  ├─ agnet/                     # Cursor Cloud Agents OpenAPI spec (and related assets)
 │  └─ agent/
 │     ├─ parse-agent-md.ts       # Parser: *.agent.md -> AgentDefinition JSON
 │     └─ types.ts                # AgentDefinition TypeScript types
