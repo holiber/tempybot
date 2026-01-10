@@ -3,7 +3,7 @@ import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
 
-import { ChannelFactory, type IChannel } from "../stc/light/channel.ts";
+import { ChannelFactory, type IChannel } from "../stc/light/channel.js";
 
 export type CerebellumActor = { role: "agent" | "user" | "system"; id?: string };
 
