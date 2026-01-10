@@ -22,6 +22,70 @@ type WorldItemMeta = {
 type WorldItem = STC.World.Item<Record<string, unknown>> & { kind: "comment"; meta: WorldItemMeta };
 type WorldSnapshot = STC.World.World<Record<string, unknown>> & { items: Array<WorldItem> };
 
+type CerebellumEvent<M extends Record<string, unknown> = Record<string, unknown>, P = unknown> = {
+  type: string;
+  payload?: P;
+  meta?: M;
+};
+
+type CerebellumHook<
+  E extends CerebellumEvent = CerebellumEvent,
+  Ctx extends Record<string, unknown> = Record<string, unknown>,
+> = (event: E, ctx: Ctx) => Promise<E | null | void> | E | null | void;
+
+class Cerebellum<Ctx extends Record<string, unknown> = Record<string, unknown>> {
+  private readonly hooks = new Map<string, Array<CerebellumHook<CerebellumEvent, Ctx>>>();
+
+  public on(type: string, hook: CerebellumHook<CerebellumEvent, Ctx>): void {
+    const arr = this.hooks.get(type) ?? [];
+    arr.push(hook);
+    this.hooks.set(type, arr);
+  }
+
+  public async dispatch(event: CerebellumEvent, ctx: Ctx): Promise<CerebellumEvent | null> {
+    const chain = this.hooks.get(event.type) ?? [];
+    let current: CerebellumEvent | null = event;
+    for (const hook of chain) {
+      if (!current) break;
+      const out = await hook(current, ctx);
+      if (out === null) {
+        current = null;
+        break;
+      }
+      if (out !== undefined) current = out;
+    }
+    return current;
+  }
+}
+
+type SlashCommand = {
+  agent: "myagent";
+  name: string;
+  args: string[];
+  raw: string;
+  commentId: number;
+  itemId: string;
+  repo: string;
+  issueNumber: number;
+  url: string;
+};
+
+function parseMyAgentSlashCommand(body: string): { name: string; args: string[]; raw: string } | null {
+  const lines = body.split(/\r?\n/);
+  for (const line of lines) {
+    const m = line.match(/(?:^|\s)\/myagent\b([^\r\n]*)/i);
+    if (!m) continue;
+    const rest = (m[1] ?? "").trim();
+    if (!rest) continue; // require `/myagent <command>`
+    const parts = rest.split(/\s+/).filter(Boolean);
+    const name = (parts[0] ?? "").trim().toLowerCase();
+    if (!name) continue;
+    const args = parts.slice(1);
+    return { name, args, raw: `/myagent ${rest}` };
+  }
+  return null;
+}
+
 function mainHelpText(): string {
   const text = `
 agnet.ts --templates <path> doctor
@@ -551,29 +615,79 @@ async function cmdRun(opts: {
   const store = await loadIdempotencyStore(opts.cwd);
   const world = await buildWorldSnapshot(opts.cwd);
 
-  // Idempotency filter: only emit unseen comments.
-  const newItems: WorldItem[] = [];
-  for (const it of world.items) {
-    if (store.seen.has(it.id)) continue;
-    store.seen.upsert({ id: it.id, seenAt: world.ts }, it.id);
-    newItems.push(it);
-  }
-  const snapshot: WorldSnapshot = { ...world, items: newItems };
+  const cerebellum = new Cerebellum<{
+    world: WorldSnapshot;
+    idempotency: typeof store;
+    logs: string[];
+  }>();
+
+  // Default wake hook: detect `/myagent <command> [args...]` in new comments with idempotency.
+  cerebellum.on("wake", (evt, ctx) => {
+    let found: SlashCommand | null = null;
+
+    for (const it of ctx.world.items) {
+      if (it.kind !== "comment") continue;
+      const meta = it.meta;
+      const parsed = parseMyAgentSlashCommand(meta.body);
+      if (!parsed) continue;
+
+      if (ctx.idempotency.seen.has(it.id)) {
+        ctx.logs.push(`Already processed: ${it.id}`);
+        continue;
+      }
+
+      ctx.idempotency.seen.upsert({ id: it.id, seenAt: ctx.world.ts }, it.id);
+      found = {
+        agent: "myagent",
+        name: parsed.name,
+        args: parsed.args,
+        raw: parsed.raw,
+        commentId: meta.commentId,
+        itemId: it.id,
+        repo: meta.repo,
+        issueNumber: meta.issueNumber,
+        url: meta.url,
+      };
+      break;
+    }
+
+    if (!found) return null; // swallow: nothing to do
+
+    ctx.logs.push(`Found command: ${found.name}`);
+    return {
+      ...evt,
+      meta: { ...(evt.meta ?? {}), command: found },
+    };
+  });
+
+  const logs: string[] = [];
+  const wake = await cerebellum.dispatch({ type: "wake", payload: { world } }, { world, idempotency: store, logs });
   await persistIdempotencyStore(store);
+
+  const cmd = (wake?.meta as any)?.command as SlashCommand | undefined;
+  const message = cmd ? `Found command: ${cmd.name}` : "Nothing to do";
 
   if (opts.mode === "json") {
     // eslint-disable-next-line no-console
-    console.log(JSON.stringify(snapshot, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          command: "run",
+          result: cmd ? "wake" : "nothing",
+          message,
+          ...(cmd ? { foundCommand: cmd } : {}),
+          logs,
+        },
+        null,
+        2
+      )
+    );
     return 0;
   }
 
   // eslint-disable-next-line no-console
-  console.log("WORLD");
-  // eslint-disable-next-line no-console
-  console.log(`items: ${snapshot.items.length}`);
-  const kinds = Array.from(new Set(snapshot.items.map((i) => i.kind))).sort();
-  // eslint-disable-next-line no-console
-  console.log(`kinds: ${kinds.join(", ") || "-"}`);
+  console.log(message);
   return 0;
 }
 
