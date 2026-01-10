@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
 import { Cerebellum, type CerebellumToolRequest, executeGh, executeMcpCall } from "../src/agnet/cerebellum.ts";
+import { runSelfCheck } from "../src/agnet/self-check.ts";
 import { CollectionFactory } from "../src/stc/light/collection.ts";
 import type { STC } from "../src/types/light/stc.js";
 
@@ -60,6 +61,7 @@ function mainHelpText(): string {
 agnet.ts --templates <path> doctor
 agnet.ts --templates <path> run --world
 agnet.ts tools
+agnet.ts selfcheck
 
 Global flags:
   --templates <path>   Agent template file (.agent.md) or directory (loads **/*.agent.md)
@@ -68,6 +70,7 @@ Global flags:
 Examples:
   node scripts/agnet.ts --templates agents/repoboss.agent.md doctor
   node scripts/agnet.ts --templates agents/repoboss.agent.md run --world
+  node scripts/agnet.ts --json selfcheck
 `.trim();
   return text;
 }
@@ -938,6 +941,29 @@ async function cmdTools(opts: { argv: string[]; mode: OutputMode }): Promise<num
   return 2;
 }
 
+async function cmdSelfCheck(opts: { mode: OutputMode }): Promise<number> {
+  const report = await runSelfCheck();
+  if (opts.mode === "json") {
+    // eslint-disable-next-line no-console
+    console.log(JSON.stringify({ ok: report.ok, command: "selfcheck", checks: report.checks }, null, 2));
+    return report.ok ? 0 : 1;
+  }
+
+  // eslint-disable-next-line no-console
+  console.log("Self-check");
+  for (const c of report.checks) {
+    if (c.ok) {
+      // eslint-disable-next-line no-console
+      console.log(`- ok: ${c.name}`);
+      continue;
+    }
+    const prefix = c.skipped ? "skipped" : "fail";
+    // eslint-disable-next-line no-console
+    console.log(`- ${prefix}: ${c.name} — ${c.error.message}`);
+  }
+  return report.ok ? 0 : 1;
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const cwd = process.cwd();
   const mode = outputMode(argv);
@@ -956,6 +982,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (command === "doctor") return await cmdDoctor({ templates, cwd, mode });
     if (command === "run") return await cmdRun({ templates, cwd, argv, mode });
     if (command === "tools") return await cmdTools({ argv, mode });
+    if (command === "selfcheck") return await cmdSelfCheck({ mode });
 
     if (mode === "json") {
       printError(mode, { message: `Unknown command: ${command}`, helpText: mainHelpText() });
