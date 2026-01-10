@@ -4,8 +4,7 @@ Project layout (repository root):
 
 ```text
 /                               # Repository root
-├─ .github/workflows/            # CI workflows (tests, GitHub Pages)
-│  ├─ tests.yml                  # Runs unit/e2e/scenario suites in CI
+├─ .github/workflows/            # Automation workflows (GitHub Pages, scenarios)
 │  ├─ static.yml                 # Publishes GitHub Pages static site
 │  ├─ pages-scenarios.yml        # Publishes scenario pages/artifacts to Pages
 │  └─ scenario-userlike-comment.yml # Posts PR comments for userlike scenario runs
