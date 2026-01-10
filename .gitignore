@@ -16,4 +16,5 @@ playwright-report
 test-results
 .cache
 artifacts
+.tmp-ci-artifacts
 
