@@ -12,7 +12,11 @@
  * Unit tests covering the same CLI contract live in: `tests/unit/agnet-cli.test.ts`
  */
 
-export {};
+import { test } from "vitest";
+
+// Vitest exits non-zero for files with zero tests (in scenario mode), which breaks CI smoke runs.
+// Keep a single skipped placeholder test so the file remains a valid scenario test file.
+test.skip("agnet CLI scenario tests are temporarily disabled (see note above)", () => {});
 
 /*
 import { expect, test } from "vitest";
