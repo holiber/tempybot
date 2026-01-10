@@ -4,6 +4,7 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
+import { Cerebellum, executeGh, executeMcpCall } from "../src/agnet/cerebellum.ts";
 import { CollectionFactory } from "../src/stc/light/collection.ts";
 import type { STC } from "../src/types/light/stc.js";
 
@@ -21,42 +22,6 @@ type WorldItemMeta = {
 
 type WorldItem = STC.World.Item<Record<string, unknown>> & { kind: "comment"; meta: WorldItemMeta };
 type WorldSnapshot = STC.World.World<Record<string, unknown>> & { items: Array<WorldItem> };
-
-type CerebellumEvent<M extends Record<string, unknown> = Record<string, unknown>, P = unknown> = {
-  type: string;
-  payload?: P;
-  meta?: M;
-};
-
-type CerebellumHook<
-  E extends CerebellumEvent = CerebellumEvent,
-  Ctx extends Record<string, unknown> = Record<string, unknown>,
-> = (event: E, ctx: Ctx) => Promise<E | null | void> | E | null | void;
-
-class Cerebellum<Ctx extends Record<string, unknown> = Record<string, unknown>> {
-  private readonly hooks = new Map<string, Array<CerebellumHook<CerebellumEvent, Ctx>>>();
-
-  public on(type: string, hook: CerebellumHook<CerebellumEvent, Ctx>): void {
-    const arr = this.hooks.get(type) ?? [];
-    arr.push(hook);
-    this.hooks.set(type, arr);
-  }
-
-  public async dispatch(event: CerebellumEvent, ctx: Ctx): Promise<CerebellumEvent | null> {
-    const chain = this.hooks.get(event.type) ?? [];
-    let current: CerebellumEvent | null = event;
-    for (const hook of chain) {
-      if (!current) break;
-      const out = await hook(current, ctx);
-      if (out === null) {
-        current = null;
-        break;
-      }
-      if (out !== undefined) current = out;
-    }
-    return current;
-  }
-}
 
 type SlashCommand = {
   agent: "myagent";
@@ -107,11 +72,11 @@ function toolsHelpText(): string {
   const text = `
 agnet.ts tools
 
-Tier 1 MVP: tools are not implemented yet.
-
-Planned (Tier 1 contract):
-  agnet.ts tools gh "<command>"
+Tier 1 tools:
+  agnet.ts tools gh "<command...>"
+    - Fixture mode: set AGNET_GH_FIXTURE_CMD=<path> to print canned stdout.
   agnet.ts tools mcp call <method> --args <json> --spec <openapi.yml>
+    - Fixture mode: set AGNET_MCP_FIXTURE_PATH=<path> to print canned response.
 `.trim();
   return text;
 }
@@ -615,11 +580,26 @@ async function cmdRun(opts: {
   const store = await loadIdempotencyStore(opts.cwd);
   const world = await buildWorldSnapshot(opts.cwd);
 
+  const logs: string[] = [];
   const cerebellum = new Cerebellum<{
     world: WorldSnapshot;
     idempotency: typeof store;
     logs: string[];
+    cerebellum: Cerebellum<any>;
   }>();
+
+  // Collect channel logs into ctx.logs for deterministic CLI output.
+  cerebellum.channel.subscribe((evt: any) => {
+    if (evt?.kind !== "data") return;
+    const data = evt.data;
+    if (data?.type === "log") {
+      const msg = String(data?.payload?.message ?? "").trim();
+      if (msg) logs.push(msg);
+    }
+  });
+
+  const ctx = { world, idempotency: store, logs, cerebellum };
+  cerebellum.worldSnapshot(world);
 
   // Default wake hook: detect `/myagent <command> [args...]` in new comments with idempotency.
   cerebellum.on("wake", (evt, ctx) => {
@@ -660,12 +640,32 @@ async function cmdRun(opts: {
     };
   });
 
-  const logs: string[] = [];
-  const wake = await cerebellum.dispatch({ type: "wake", payload: { world } }, { world, idempotency: store, logs });
+  // Safety hook: block agent gh tool calls unless an intention is explicitly provided.
+  cerebellum.on("tool.request", (evt, ctx) => {
+    const p: any = evt.payload;
+    const req = p?.request;
+    const actor = p?.actor;
+    const intention = p?.intention;
+    if (req?.tool === "gh" && actor?.role === "agent" && !intention) {
+      cerebellum.log(`Blocked gh tool call (missing intention).`);
+      return null;
+    }
+  });
+
+  const wake = await cerebellum.dispatch({ type: "wake", payload: { world } }, ctx);
   await persistIdempotencyStore(store);
 
   const cmd = (wake?.meta as any)?.command as SlashCommand | undefined;
   const message = cmd ? `Found command: ${cmd.name}` : "Nothing to do";
+
+  // Minimal agent action (Tier 1): resolve triggers a gh tool request (subject to hooks).
+  if (cmd?.name === "resolve") {
+    const toolReq = { tool: "gh" as const, args: ["issue", "status"] };
+    const exec = await cerebellum.executeTool(toolReq, { actor: { role: "agent" }, ctx });
+    if (exec.result.ok) {
+      cerebellum.log("gh executed");
+    }
+  }
 
   if (opts.mode === "json") {
     // eslint-disable-next-line no-console
@@ -688,7 +688,28 @@ async function cmdRun(opts: {
 
   // eslint-disable-next-line no-console
   console.log(message);
+  for (const line of logs) {
+    // eslint-disable-next-line no-console
+    console.log(line);
+  }
   return 0;
+}
+
+function splitCliWords(input: string): string[] {
+  return input
+    .split(/\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function getNamedArg(argv: string[], name: string): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === name) {
+      const v = argv[i + 1];
+      if (v && !v.startsWith("-")) return v;
+    }
+  }
+  return undefined;
 }
 
 async function cmdTools(opts: { argv: string[]; mode: OutputMode }): Promise<number> {
@@ -705,13 +726,85 @@ async function cmdTools(opts: { argv: string[]; mode: OutputMode }): Promise<num
     return 0;
   }
 
-  // Wrong usage for now.
+  if (sub === "gh") {
+    const cmdText = rest.slice(2).join(" ").trim();
+    if (!cmdText) {
+      printError(opts.mode, { command: "tools", message: "Missing gh command string.", helpText: toolsHelpText() });
+      return 2;
+    }
+
+    const args = splitCliWords(cmdText);
+    const res = await executeGh(args, { cwd: process.cwd() });
+    if (!res.ok) {
+      printError(opts.mode, { command: "tools", message: res.error.message });
+      return 1;
+    }
+
+    if (opts.mode === "json") {
+      // eslint-disable-next-line no-console
+      console.log(JSON.stringify({ ok: true, command: "tools", tool: "gh", stdout: res.stdout }, null, 2));
+      return 0;
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(res.stdout.trimEnd());
+    return 0;
+  }
+
+  if (sub === "mcp") {
+    const action = rest[2];
+    if (action !== "call") {
+      printError(opts.mode, { command: "tools", message: `Unknown mcp command: ${String(action)}`, helpText: toolsHelpText() });
+      return 2;
+    }
+    const method = rest[3];
+    const rawArgs = getNamedArg(rest, "--args") ?? getNamedArg(opts.argv, "--args");
+    const specPath = getNamedArg(rest, "--spec") ?? getNamedArg(opts.argv, "--spec");
+
+    if (!method) {
+      printError(opts.mode, { command: "tools", message: "Missing MCP method.", helpText: toolsHelpText() });
+      return 2;
+    }
+    if (!rawArgs) {
+      printError(opts.mode, { command: "tools", message: "Missing required flag: --args <json>", helpText: toolsHelpText() });
+      return 2;
+    }
+    if (!specPath) {
+      printError(opts.mode, { command: "tools", message: "Missing required flag: --spec <openapi.yml>", helpText: toolsHelpText() });
+      return 2;
+    }
+
+    let parsedArgs: unknown;
+    try {
+      parsedArgs = JSON.parse(rawArgs);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      printError(opts.mode, { command: "tools", message: `Failed to parse --args JSON: ${msg}` });
+      return 2;
+    }
+
+    const res = await executeMcpCall({ method, args: parsedArgs, specPath }, { cwd: process.cwd() });
+    if (!res.ok) {
+      printError(opts.mode, { command: "tools", message: res.error.message });
+      return 1;
+    }
+
+    if (opts.mode === "json") {
+      // eslint-disable-next-line no-console
+      console.log(
+        JSON.stringify({ ok: true, command: "tools", tool: "mcp", method, stdout: res.stdout }, null, 2)
+      );
+      return 0;
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(res.stdout.trimEnd());
+    return 0;
+  }
+
+  // Wrong usage.
   if (opts.mode === "json") {
-    printError(opts.mode, {
-      command: "tools",
-      message: `Unknown tools command: ${sub}`,
-      helpText: toolsHelpText(),
-    });
+    printError(opts.mode, { command: "tools", message: `Unknown tools command: ${sub}`, helpText: toolsHelpText() });
     return 2;
   }
 
