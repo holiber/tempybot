@@ -1,0 +1,36 @@
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90m/home/runner/work/tempybot/tempybot[39m
+
+ [31m❯[39m tests/scenario/cli/agnet.scenario.test.ts [2m([22m[2m4 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[33m 1056[2mms[22m[39m
+   [33m[2m✓[22m[39m agnet doctor prints templates count (json) [33m673[2mms[22m[39m
+[31m   [31m×[31m agnet run --world prints stub world (json)[33m 382[2mms[22m[31m[39m
+[31m     → expected 1 to be +0 // Object.is equality[39m
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m1 passed[39m[22m[90m (4)[39m
+[2m   Start at [22m 15:04:20
+[2m   Duration [22m 1.56s[2m (transform 46ms, setup 0ms, collect 272ms, tests 1.06s, environment 0ms, prepare 62ms)[22m
+
+
+::error file=/home/runner/work/tempybot/tempybot/tests/scenario/cli/agnet.scenario.test.ts,title=tests/scenario/cli/agnet.scenario.test.ts > agnet run --world prints stub world (json),line=79,column=22::AssertionError: expected 1 to be +0 // Object.is equality%0A%0A- Expected%0A+ Received%0A%0A- 0%0A+ 1%0A%0A ❯ tests/scenario/cli/agnet.scenario.test.ts:79:22%0A%0A
+[31m⎯⎯⎯⎯⎯⎯⎯[1m[7m Failed Tests 1 [27m[22m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[31m[1m[7m FAIL [27m[22m[39m tests/scenario/cli/agnet.scenario.test.ts[2m > [22magnet run --world prints stub world (json)
+[31m[1mAssertionError[22m: expected 1 to be +0 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 0[39m
+[31m+ 1[39m
+
+[36m [2m❯[22m tests/scenario/cli/agnet.scenario.test.ts:[2m79:22[22m[39m
+    [90m 77| [39m  [35mtry[39m {
+    [90m 78| [39m    [35mconst[39m { exitCode } [33m=[39m [35mawait[39m cli[33m.[39m[34mwaitForExit[39m([34m60_000[39m)[33m;[39m
+    [90m 79| [39m    [34mexpect[39m(exitCode)[33m.[39m[34mtoBe[39m([34m0[39m)[33m;[39m
+    [90m   | [39m                     [31m^[39m
+    [90m 80| [39m
+    [90m 81| [39m    [35mconst[39m json [33m=[39m parseLastJsonObject[33m<[39m{ ok[33m:[39m [35mtrue[39m[33m;[39m command[33m:[39m [32m"run"[39m[33m;[39m world…
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+
