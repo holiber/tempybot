@@ -114,6 +114,53 @@ abilities:
     expect(parsed.toolsSource).toContain("init");
   });
 
+  it("parses mcpServers from YAML frontmatter (preserves server/env keys and values)", () => {
+    const raw = `---
+mcpServers:
+  plugin-database:
+    command: "\${CLAUDE_PLUGIN_ROOT}/servers/db-server"
+    args:
+      - "--config"
+      - "\${CLAUDE_PLUGIN_ROOT}/config.json"
+    env:
+      DB_PATH: "\${CLAUDE_PLUGIN_ROOT}/data"
+
+  plugin-api-client:
+    command: "npx"
+    args:
+      - "@company/mcp-server"
+      - "--plugin-mode"
+    cwd: "\${CLAUDE_PLUGIN_ROOT}"
+---
+
+# Title
+`;
+
+    const parsed = parseAgentMdFromString(raw);
+    expect(parsed.mcpServers).toEqual({
+      "plugin-database": {
+        command: "${CLAUDE_PLUGIN_ROOT}/servers/db-server",
+        args: ["--config", "${CLAUDE_PLUGIN_ROOT}/config.json"],
+        env: { DB_PATH: "${CLAUDE_PLUGIN_ROOT}/data" },
+      },
+      "plugin-api-client": {
+        command: "npx",
+        args: ["@company/mcp-server", "--plugin-mode"],
+        cwd: "${CLAUDE_PLUGIN_ROOT}",
+      },
+    });
+  });
+
+  it("throws on malformed mcpServers (non-object)", () => {
+    const raw = `---
+mcpServers: []
+---
+
+# Title
+`;
+    expect(() => parseAgentMdFromString(raw)).toThrow(/Invalid frontmatter 'mcpServers': expected an object/);
+  });
+
   it("throws on conflicting title between YAML frontmatter and H1 title", () => {
     const raw = `---
 title: From YAML
