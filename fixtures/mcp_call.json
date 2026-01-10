@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "tool": "mcp",
+  "method": "cursor.jobs.get",
+  "args": {
+    "jobId": "abc"
+  },
+  "result": {
+    "jobId": "abc",
+    "status": "completed",
+    "output": {
+      "message": "fixture response"
+    }
+  }
+}
+

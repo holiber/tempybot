@@ -150,5 +150,47 @@ describe("agnet.ts CLI (unit)", () => {
     expect(json.error.message).toMatch(/Unknown tools command/i);
     expect(json.help).toContain("agnet.ts tools");
   });
+
+  it("tools gh uses fixture mode (no real gh)", () => {
+    const res = runAgnet(["tools", "gh", "issue status"], {
+      AGNET_GH_FIXTURE_CMD: "fixtures/gh_cmd_output.txt",
+    });
+    expect(res.code, combinedOutput(res)).toBe(0);
+    expect(res.stdout).toContain("gh executed");
+  });
+
+  it("tools mcp call returns fixture response", () => {
+    const res = runAgnet(
+      [
+        "tools",
+        "mcp",
+        "call",
+        "cursor.jobs.get",
+        "--args",
+        '{"jobId":"abc"}',
+        "--spec",
+        "fixtures/cursor.openapi.yml",
+      ],
+      {
+        AGNET_MCP_FIXTURE_PATH: "fixtures/mcp_call.json",
+      }
+    );
+    expect(res.code, combinedOutput(res)).toBe(0);
+    expect(res.stdout).toContain("fixture response");
+    expect(res.stdout).toContain('"jobId": "abc"');
+  });
+
+  it("hook blocks gh tool call without intention (run --world)", () => {
+    const template = path.join(process.cwd(), "agents", "repoboss.agent.md");
+    const idemPath = makeTempFilePath("idempotency");
+    const res = runAgnet(["--templates", template, "run", "--world"], {
+      AGNET_GH_FIXTURE_PATH: "fixtures/gh_issue_comments_myagent_resolve.json",
+      AGNET_IDEMPOTENCY_PATH: idemPath,
+      AGNET_GH_FIXTURE_CMD: "fixtures/gh_cmd_output.txt",
+    });
+    expect(res.code, combinedOutput(res)).toBe(0);
+    expect(res.stdout).toContain("Blocked");
+    expect(res.stdout).not.toContain("gh executed");
+  });
 });
 
