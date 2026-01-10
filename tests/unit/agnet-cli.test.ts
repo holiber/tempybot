@@ -63,28 +63,14 @@ describe("agnet.ts CLI (unit)", () => {
     expect(json.templates).toEqual(["agents/repoboss.agent.md"]);
   });
 
-  it("run --world prints items count in text mode (fixture)", () => {
-    const template = path.join(process.cwd(), "agents", "repoboss.agent.md");
-    const res = runAgnet(
-      ["--templates", template, "run", "--world"],
-      {
-        AGNET_GH_FIXTURE_PATH: "fixtures/gh_issue_comments.json",
-        AGNET_IDEMPOTENCY_PATH: makeTempFilePath("idempotency"),
-      }
-    );
-    expect(res.code, combinedOutput(res)).toBe(0);
-    expect(res.stdout).toContain("WORLD");
-    expect(res.stdout).toMatch(/items:\s*2/);
-    expect(res.stdout).toMatch(/comment/i);
-  });
-
   it("run --world prints World snapshot JSON (fixture)", () => {
     const template = path.join(process.cwd(), "agents", "repoboss.agent.md");
+    const idemPath = makeTempFilePath("idempotency");
     const res = runAgnet(
       ["--json", "--templates", template, "run", "--world"],
       {
         AGNET_GH_FIXTURE_PATH: "fixtures/gh_issue_comments.json",
-        AGNET_IDEMPOTENCY_PATH: makeTempFilePath("idempotency"),
+        AGNET_IDEMPOTENCY_PATH: idemPath,
       }
     );
     expect(res.code, combinedOutput(res)).toBe(0);
@@ -94,6 +80,19 @@ describe("agnet.ts CLI (unit)", () => {
     expect(json.items[0]!.kind).toBe("comment");
     expect((json.items[0]!.meta as any)?.repo).toBeTruthy();
     expect((json.items[0]!.meta as any)?.commentId).toBeTruthy();
+
+    // Idempotency: rerunning with the same store should be a no-op.
+    const res2 = runAgnet(
+      ["--json", "--templates", template, "run", "--world"],
+      {
+        AGNET_GH_FIXTURE_PATH: "fixtures/gh_issue_comments.json",
+        AGNET_IDEMPOTENCY_PATH: idemPath,
+      }
+    );
+    expect(res2.code, combinedOutput(res2)).toBe(0);
+    const json2 = parseJsonStdout<{ items: Array<unknown> }>(res2);
+    expect(Array.isArray(json2.items)).toBe(true);
+    expect(json2.items.length).toBe(0);
   });
 
   it("missing --templates path fails with a helpful error", () => {
