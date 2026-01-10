@@ -30,8 +30,8 @@ Based on the policy example, the loader/parser should:
 ### Plan: 4 PRs
 
 #### PR 1 — Foundation: types + frontmatter + minimal extraction
-- Add `src/agent/types.ts` defining the JSON output shape (`AgentDefinition`, etc.).
-- Add `src/agent/parse-agent-md.ts` with:
+- Add `src/md-parser/types.ts` defining the JSON output shape (`AgentDefinition`, etc.).
+- Add `src/md-parser/parse-agent-md.ts` with:
   - file reading
   - YAML frontmatter parsing
   - Markdown AST parsing

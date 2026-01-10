@@ -1,5 +1,8 @@
 import * as pty from "node-pty";
 import { chromium, devices, type Browser, type BrowserContext, type Page } from "playwright";
+import { performance } from "node:perf_hooks";
+import fs from "node:fs";
+import path from "node:path";
 
 /**
  * Scenario-only test utilities.
@@ -19,6 +22,87 @@ export type ScenarioMode = "smoke" | "userlike";
 export const SCENARIO_MODE: ScenarioMode =
   process.env.SCENARIO_MODE === "smoke" ? "smoke" : "userlike";
 
+type UserSleepSample = {
+  requestedMs: number;
+  actualMs: number;
+};
+
+type ScenarioTimingsStore = {
+  userSleepSamples: UserSleepSample[];
+  registered: boolean;
+  printed: boolean;
+};
+
+const TIMINGS_SYM = Symbol.for("stc.scenario.timings");
+const timingsStore: ScenarioTimingsStore =
+  ((globalThis as unknown as Record<symbol, ScenarioTimingsStore>)[TIMINGS_SYM] ??=
+    { userSleepSamples: [], registered: false, printed: false });
+
+function isScenarioTimingsEnabled(): boolean {
+  return process.env.SCENARIO_TIMINGS === "1";
+}
+
+function timingsFilePath(): string | null {
+  const p = process.env.SCENARIO_TIMINGS_FILE;
+  return p && p.trim() ? p.trim() : null;
+}
+
+function computeScenarioTimingsSummary() {
+  const samples = timingsStore.userSleepSamples;
+  const actuals = samples.map((s) => s.actualMs);
+  const requested = samples.map((s) => s.requestedMs);
+
+  const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+  const min = (xs: number[]) => Math.min(...xs);
+  const max = (xs: number[]) => Math.max(...xs);
+  const avg = (xs: number[]) => sum(xs) / xs.length;
+
+  const reqSum = requested.length ? sum(requested) : 0;
+  const actSum = actuals.length ? sum(actuals) : 0;
+  const drift = actSum - reqSum;
+
+  return {
+    kind: "scenario-timings",
+    pid: process.pid,
+    userSleep: {
+      calls: samples.length,
+      requested_ms_total: Number(reqSum.toFixed(0)),
+      actual_ms_total: Number(actSum.toFixed(0)),
+      drift_ms_total: Number(drift.toFixed(0)),
+      actual_ms_min: samples.length ? Number(min(actuals).toFixed(1)) : null,
+      actual_ms_avg: samples.length ? Number(avg(actuals).toFixed(1)) : null,
+      actual_ms_max: samples.length ? Number(max(actuals).toFixed(1)) : null,
+    },
+  } as const;
+}
+
+function writeTimingsSummaryBestEffort(): void {
+  const outPath = timingsFilePath();
+  if (!outPath) return;
+  try {
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, JSON.stringify(computeScenarioTimingsSummary(), null, 2), "utf8");
+  } catch {
+    // Best-effort only: avoid failing scenarios due to reporting.
+  }
+}
+
+function registerScenarioTimingsSummary(): void {
+  if (SCENARIO_MODE !== "userlike") return;
+  if (!isScenarioTimingsEnabled()) return;
+  if (timingsStore.registered) return;
+  timingsStore.registered = true;
+
+  // Vitest may terminate workers via process.exit(), which does not emit "beforeExit".
+  // Use "exit" to ensure the summary is printed deterministically.
+  process.once("exit", () => {
+    if (timingsStore.printed) return;
+    timingsStore.printed = true;
+
+    writeTimingsSummaryBestEffort();
+  });
+}
+
 /**
  * SCENARIO_WEB_DEVICE:
  * - "desktop" (default)
@@ -29,12 +113,19 @@ export type WebDeviceMode = "desktop" | "mobile";
 export const SCENARIO_WEB_DEVICE: WebDeviceMode =
   process.env.SCENARIO_WEB_DEVICE === "mobile" ? "mobile" : "desktop";
 
-export async function userSleep(ms = 1500): Promise<void> {
+export async function userSleep(ms = 2000): Promise<void> {
   if (SCENARIO_MODE === "smoke") return;
+  registerScenarioTimingsSummary();
+  const started = performance.now();
   await new Promise((r) => setTimeout(r, ms));
+  const actualMs = performance.now() - started;
+  if (isScenarioTimingsEnabled()) {
+    timingsStore.userSleepSamples.push({ requestedMs: ms, actualMs });
+    writeTimingsSummaryBestEffort();
+  }
 }
 
-export async function userTypeDelay(ms = 40): Promise<void> {
+export async function userTypeDelay(ms = 90): Promise<void> {
   await userSleep(ms);
 }
 

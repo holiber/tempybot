@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { parseAgentMd } from "./agent/parse-agent-md.js";
+import { parseAgentMd } from "./md-parser/parse-agent-md.js";
 
 type ParsedArgs = {
   command: "parse" | "help" | "unknown";

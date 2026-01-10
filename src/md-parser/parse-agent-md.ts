@@ -907,7 +907,7 @@ function assertNoFrontmatterVsHeadingConflict(opts: {
   }
 }
 
-export function parseAgentMdFromString(raw: string): AgentDefinition {
+export function agentTemplateToJson(raw: string): AgentDefinition {
   const parsed = matter(raw, {
     engines: {
       yaml: (s) => YAML.parse(s),
@@ -1040,6 +1040,6 @@ export function parseAgentMdFromString(raw: string): AgentDefinition {
 
 export async function parseAgentMd(filePath: string): Promise<AgentDefinition> {
   const raw = await fs.readFile(filePath, "utf8");
-  return parseAgentMdFromString(raw);
+  return agentTemplateToJson(raw);
 }
 

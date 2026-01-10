@@ -16,6 +16,7 @@ const CACHE_DIR = path.join(ROOT, ".cache", "smokecheck");
 const ARTIFACTS_ROOT = path.join(ROOT, "artifacts", "user-style-e2e");
 const WEB_VIDEO_ROOT = path.join(ARTIFACTS_ROOT, "web");
 const CLI_VIDEO_ROOT = path.join(ARTIFACTS_ROOT, "cli");
+const TIMINGS_ROOT = path.join(ARTIFACTS_ROOT, "timings");
 
 const argv = process.argv.slice(2);
 
@@ -55,6 +56,7 @@ function resetDirs() {
   if (MODE === "userlike") {
     mkdirp(WEB_VIDEO_ROOT);
     mkdirp(CLI_VIDEO_ROOT);
+    mkdirp(TIMINGS_ROOT);
   }
 }
 
@@ -159,6 +161,90 @@ function trySpawnSync(cmd, args, options = {}) {
   return { ok: true, stdout: r.stdout, stderr: r.stderr };
 }
 
+function sleepSync(ms) {
+  // Used only for tiny post-recording delays.
+  // Atomics.wait blocks without a busy loop.
+  const sab = new SharedArrayBuffer(4);
+  const ia = new Int32Array(sab);
+  Atomics.wait(ia, 0, 0, ms);
+}
+
+function formatSeconds(sec) {
+  if (!Number.isFinite(sec)) return "unknown";
+  if (sec < 60) return `${sec.toFixed(2)}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec - m * 60;
+  return `${m}m${s.toFixed(0)}s`;
+}
+
+function measureMp4DurationSeconds(mp4Path) {
+  const ffprobeOk = trySpawnSync("ffprobe", [
+    "-v",
+    "error",
+    "-show_entries",
+    "format=duration",
+    "-of",
+    "default=noprint_wrappers=1:nokey=1",
+    mp4Path,
+  ]);
+  if (!ffprobeOk.ok) return null;
+  const raw = String(ffprobeOk.stdout ?? "").trim();
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return null;
+  return value;
+}
+
+function measureAsciicastDurationSeconds(castPath) {
+  try {
+    if (!fs.existsSync(castPath)) return null;
+    const content = fs.readFileSync(castPath, "utf8");
+    // v2 asciicast: first line is a JSON header object, followed by JSON arrays like: [time, "o", "text"]
+    const lines = content.split(/\r?\n/).filter(Boolean);
+    let maxT = 0;
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.startsWith("[")) continue;
+      const evt = JSON.parse(line);
+      const t = Number(evt?.[0]);
+      if (Number.isFinite(t) && t > maxT) maxT = t;
+    }
+    if (maxT <= 0) return null;
+    return maxT;
+  } catch {
+    return null;
+  }
+}
+
+function readTimingsSummary(timingsPath) {
+  try {
+    if (!timingsPath) return null;
+    if (!fs.existsSync(timingsPath)) return null;
+    const raw = fs.readFileSync(timingsPath, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function printTimingsSummary(file, timingsPath) {
+  const summary = readTimingsSummary(timingsPath);
+  if (!summary?.userSleep) return;
+  const us = summary.userSleep;
+  console.log(
+    [
+      "SCENARIO_TIMINGS",
+      `file=${relToRoot(file)}`,
+      `userSleep_calls=${us.calls}`,
+      `requested_ms_total=${us.requested_ms_total}`,
+      `actual_ms_total=${us.actual_ms_total}`,
+      `drift_ms_total=${us.drift_ms_total}`,
+      `actual_ms_min=${us.actual_ms_min ?? "null"}`,
+      `actual_ms_avg=${us.actual_ms_avg ?? "null"}`,
+      `actual_ms_max=${us.actual_ms_max ?? "null"}`,
+    ].join(" ")
+  );
+}
+
 function runCliUserlikeWithVideo(file) {
   const base = safeBase(file);
   const outDir = path.join(CLI_VIDEO_ROOT, base);
@@ -166,22 +252,41 @@ function runCliUserlikeWithVideo(file) {
 
   const castPath = path.join(outDir, `${base}.cast`);
   const mp4Path = path.join(outDir, `${base}.mp4`);
+  const timingsPath = path.join(TIMINGS_ROOT, `${base}.json`);
 
   // asciinema rec -c "<cmd>" <cast>
   // Note: we keep this optional; if tools are missing, we fall back to a normal run.
   const asciinemaOk = trySpawnSync("asciinema", ["--version"]);
   if (!asciinemaOk.ok) {
     // fallback (no video)
-    const r = runVitestOneFile({ file, env: { SCENARIO_MODE: "userlike" }, stdio: "inherit" });
+    const r = runVitestOneFile({
+      file,
+      env: { SCENARIO_MODE: "userlike", SCENARIO_TIMINGS: "1", SCENARIO_TIMINGS_FILE: timingsPath },
+      stdio: "inherit",
+    });
+    printTimingsSummary(file, timingsPath);
     return { ok: (r.status ?? 1) === 0, outDir, castPath: null, mp4Path: null, usedVideo: false };
   }
 
-  const cmdString = `${MODE === "userlike" ? "SCENARIO_MODE=userlike" : ""} npx vitest run --config vitest.scenario.config.ts "${file}" --bail=1`;
+  const cmdString = `SCENARIO_MODE=userlike SCENARIO_TIMINGS=1 SCENARIO_TIMINGS_FILE="${timingsPath}" npx vitest run --config vitest.scenario.config.ts "${file}" --bail=1`;
   const rec = spawnSync("asciinema", ["rec", "--overwrite", "-q", "-c", cmdString, castPath], {
     stdio: "inherit",
-    env: { ...process.env, SCENARIO_MODE: "userlike" },
+    env: { ...process.env, SCENARIO_MODE: "userlike", SCENARIO_TIMINGS: "1" },
   });
   if ((rec.status ?? 1) !== 0) return { ok: false, outDir, castPath, mp4Path: null, usedVideo: true };
+
+  // Delay after "stop recording" signal (asciinema process has exited).
+  // This helps avoid edge cases where artifacts are measured before being fully flushed.
+  sleepSync(1000);
+
+  printTimingsSummary(file, timingsPath);
+
+  // Always report recorded duration (cast is the source of truth).
+  // mp4 conversion is best-effort and may be unavailable locally.
+  const castDuration = measureAsciicastDurationSeconds(castPath);
+  if (castDuration != null) {
+    console.log(`CLI_VIDEO_DURATION file=${relToRoot(file)} duration=${formatSeconds(castDuration)} source=cast`);
+  }
 
   // cast -> gif -> mp4 via agg + ffmpeg (optional, best-effort)
   const aggOk = trySpawnSync("agg", ["--version"]);
@@ -199,6 +304,11 @@ function runCliUserlikeWithVideo(file) {
   );
   if ((ff.status ?? 1) !== 0) return { ok: true, outDir, castPath, mp4Path: null, usedVideo: true };
 
+  const mp4Duration = measureMp4DurationSeconds(mp4Path);
+  if (mp4Duration != null) {
+    console.log(`CLI_VIDEO_DURATION file=${relToRoot(file)} duration=${formatSeconds(mp4Duration)} source=mp4`);
+  }
+
   return { ok: true, outDir, castPath, mp4Path, usedVideo: true };
 }
 
@@ -206,24 +316,32 @@ function runOneSmoke(file) {
   const base = safeBase(file);
   const logPath = path.join(CACHE_DIR, `${base}.log`);
 
+  const startedOne = performance.now();
   const r = runVitestOneFile({
     file,
     env: { SCENARIO_MODE: "smoke" },
     stdio: "pipe",
   });
+  const elapsedOne = (performance.now() - startedOne) / 1000;
 
   const combined = `${r.stdout ?? ""}${r.stderr ?? ""}`;
   fs.writeFileSync(logPath, combined, "utf8");
 
+  console.log(`SCENARIO_DURATION file=${relToRoot(file)} duration=${formatSeconds(elapsedOne)} mode=smoke`);
   return { ok: (r.status ?? 1) === 0, logPath };
 }
 
 function runOneUserlike(file) {
   const t = targetOf(file);
   const base = safeBase(file);
+  const timingsPath = path.join(TIMINGS_ROOT, `${base}.json`);
 
+  const startedOne = performance.now();
   if (t === "cli") {
-    return runCliUserlikeWithVideo(file);
+    const res = runCliUserlikeWithVideo(file);
+    const elapsedOne = (performance.now() - startedOne) / 1000;
+    console.log(`SCENARIO_DURATION file=${relToRoot(file)} duration=${formatSeconds(elapsedOne)} mode=userlike`);
+    return res;
   }
 
   // web: record via Playwright recordVideo (test-utils reads E2E_WEB_VIDEO_DIR)
@@ -234,12 +352,17 @@ function runOneUserlike(file) {
     file,
     env: {
       SCENARIO_MODE: "userlike",
+      SCENARIO_TIMINGS: "1",
+      SCENARIO_TIMINGS_FILE: timingsPath,
       E2E_WEB_VIDEO_DIR: webOutDir,
       SCENARIO_WEB_DEVICE: mobile ? "mobile" : process.env.SCENARIO_WEB_DEVICE,
     },
     stdio: "inherit",
   });
 
+  printTimingsSummary(file, timingsPath);
+  const elapsedOne = (performance.now() - startedOne) / 1000;
+  console.log(`SCENARIO_DURATION file=${relToRoot(file)} duration=${formatSeconds(elapsedOne)} mode=userlike`);
   return { ok: (r.status ?? 1) === 0, outDir: webOutDir, usedVideo: true };
 }
 

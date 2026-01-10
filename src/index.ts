@@ -7,6 +7,6 @@ export type {
   AgentStatus,
   McpServerConfig,
   McpServersConfig,
-} from "./agent/types.js";
-export { parseAgentMd, parseAgentMdFromString } from "./agent/parse-agent-md.js";
+} from "./md-parser/types.js";
+export { agentTemplateToJson, parseAgentMd } from "./md-parser/parse-agent-md.js";
 

@@ -1,12 +1,12 @@
 import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { parseAgentMd, parseAgentMdFromString } from "../../../src/agent/parse-agent-md.js";
+import { agentTemplateToJson, parseAgentMd } from "../../../src/md-parser/parse-agent-md.js";
 
-describe("parseAgentMdFromString()", () => {
+describe("agentTemplateToJson()", () => {
   it("applies defaults and extracts core sections without frontmatter", async () => {
     const raw = await fs.readFile(new URL("./fixtures/minimal.agent.md", import.meta.url), "utf8");
-    const parsed = parseAgentMdFromString(raw);
+    const parsed = agentTemplateToJson(raw);
 
     expect(parsed).toMatchObject({
       version: "0.1.0",
@@ -37,7 +37,7 @@ Desc.
 
 ![ignored](https://example.com/second.png)
 `.trim();
-    const parsed = parseAgentMdFromString(raw);
+    const parsed = agentTemplateToJson(raw);
     expect(parsed.avatar).toBe("https://example.com/avatar.png");
   });
 
@@ -51,7 +51,7 @@ avatar: https://example.com/a.png
 # Avatar
 ![x](https://example.com/b.png)
 `;
-    expect(() => parseAgentMdFromString(raw)).toThrow(/Conflicting 'avatar'/);
+    expect(() => agentTemplateToJson(raw)).toThrow(/Conflicting 'avatar'/);
   });
 
   it("parses and validates abilities (array shorthand = allow list, normalized to lowercase)", () => {
@@ -64,7 +64,7 @@ abilities:
 
 # Title
 `;
-    const parsed = parseAgentMdFromString(raw);
+    const parsed = agentTemplateToJson(raw);
     expect(parsed.abilities).toEqual({ allow: ["fs", "sh:git", "tool"] });
   });
 
@@ -77,12 +77,12 @@ abilities:
 
 # Title
 `;
-    expect(() => parseAgentMdFromString(raw)).toThrow(/allow\/deny overlap/i);
+    expect(() => agentTemplateToJson(raw)).toThrow(/allow\/deny overlap/i);
   });
 
   it("parses YAML frontmatter case-insensitively and prefers it over fallbacks", async () => {
     const raw = await fs.readFile(new URL("./fixtures/frontmatter-case.agent.md", import.meta.url), "utf8");
-    const parsed = parseAgentMdFromString(raw);
+    const parsed = agentTemplateToJson(raw);
 
     expect(parsed.version).toBe("9.9.9");
     expect(parsed.icon).toBe("🧪");
@@ -136,7 +136,7 @@ mcpServers:
 # Title
 `;
 
-    const parsed = parseAgentMdFromString(raw);
+    const parsed = agentTemplateToJson(raw);
     expect(parsed.mcpServers).toEqual({
       "plugin-database": {
         command: "${CLAUDE_PLUGIN_ROOT}/servers/db-server",
@@ -158,7 +158,7 @@ mcpServers: []
 
 # Title
 `;
-    expect(() => parseAgentMdFromString(raw)).toThrow(/Invalid frontmatter 'mcpServers': expected an object/);
+    expect(() => agentTemplateToJson(raw)).toThrow(/Invalid frontmatter 'mcpServers': expected an object/);
   });
 
   it("throws on conflicting title between YAML frontmatter and H1 title", () => {
@@ -168,7 +168,7 @@ title: From YAML
 
 # From Heading
 `;
-    expect(() => parseAgentMdFromString(raw)).toThrow(/Conflicting 'title'/);
+    expect(() => agentTemplateToJson(raw)).toThrow(/Conflicting 'title'/);
   });
 
   it("throws on conflicting description between YAML frontmatter and first paragraph fallback", () => {
@@ -179,7 +179,7 @@ description: From YAML
 # Title
 From Heading
 `;
-    expect(() => parseAgentMdFromString(raw)).toThrow(/Conflicting 'description'/);
+    expect(() => agentTemplateToJson(raw)).toThrow(/Conflicting 'description'/);
   });
 
   it("throws on conflicting system between YAML frontmatter and ## System section", () => {
@@ -192,7 +192,7 @@ system: From YAML
 ## System
 From Heading
 `;
-    expect(() => parseAgentMdFromString(raw)).toThrow(/Conflicting 'system'/);
+    expect(() => agentTemplateToJson(raw)).toThrow(/Conflicting 'system'/);
   });
 
   it("throws on conflicting rules between YAML frontmatter and ## Rules section", () => {
@@ -205,7 +205,7 @@ rules: From YAML
 ## Rules
 From Heading
 `;
-    expect(() => parseAgentMdFromString(raw)).toThrow(/Conflicting 'rules'/);
+    expect(() => agentTemplateToJson(raw)).toThrow(/Conflicting 'rules'/);
   });
 
   it("throws on invalid status (instead of defaulting)", () => {
@@ -215,7 +215,7 @@ status: nope
 
 # Title
 `;
-    expect(() => parseAgentMdFromString(raw)).toThrow(/Invalid frontmatter 'status'/);
+    expect(() => agentTemplateToJson(raw)).toThrow(/Invalid frontmatter 'status'/);
   });
 
   it("throws on malformed commands (non-array)", () => {
@@ -225,7 +225,7 @@ commands: hello
 
 # Title
 `;
-    expect(() => parseAgentMdFromString(raw)).toThrow(/Invalid frontmatter 'commands': expected an array/);
+    expect(() => agentTemplateToJson(raw)).toThrow(/Invalid frontmatter 'commands': expected an array/);
   });
 
   it("throws on empty commands array", () => {
@@ -235,7 +235,7 @@ commands: []
 
 # Title
 `;
-    expect(() => parseAgentMdFromString(raw)).toThrow(/must not be an empty array/);
+    expect(() => agentTemplateToJson(raw)).toThrow(/must not be an empty array/);
   });
 
   it("throws on malformed inline command objects", () => {
@@ -248,7 +248,7 @@ commands:
 
 # Title
 `;
-    expect(() => parseAgentMdFromString(raw)).toThrow(/commands\[0\]\.description/);
+    expect(() => agentTemplateToJson(raw)).toThrow(/commands\[0\]\.description/);
   });
 
   it("accepts http(s) command URLs and local path command refs", () => {
@@ -260,7 +260,7 @@ commands:
 
 # Title
 `;
-    const parsed = parseAgentMdFromString(raw);
+    const parsed = agentTemplateToJson(raw);
     expect(parsed.commands).toEqual(["./commands", "https://example.com/commands/test.md"]);
   });
 
@@ -272,7 +272,7 @@ commands:
 
 # Title
 `;
-    expect(() => parseAgentMdFromString(raw)).toThrow(/commands\[0\].*local path.*URL/i);
+    expect(() => agentTemplateToJson(raw)).toThrow(/commands\[0\].*local path.*URL/i);
   });
 
   it("validates required.startup references a tool in ## Tools (case-insensitive, return object literal)", () => {
@@ -291,7 +291,7 @@ return {
   },
 };
 `;
-    const parsed = parseAgentMdFromString(raw);
+    const parsed = agentTemplateToJson(raw);
     expect(parsed.required).toEqual({ startup: "Ping" });
   });
 
@@ -309,7 +309,7 @@ const tools = {
 };
 return tools;
 `;
-    const parsed = parseAgentMdFromString(raw);
+    const parsed = agentTemplateToJson(raw);
     expect(parsed.required).toEqual({ startup: "init" });
   });
 
@@ -321,7 +321,7 @@ required:
 
 # Title
 `;
-    expect(() => parseAgentMdFromString(raw)).toThrow(/required\.startup.*no tools were found/i);
+    expect(() => agentTemplateToJson(raw)).toThrow(/required\.startup.*no tools were found/i);
   });
 
   it("throws when required.startup does not match any declared tool", () => {
@@ -335,7 +335,7 @@ required:
 ## Tools
 return { ping: { fn: () => "pong", scheme: { name: "ping", description: "Ping", parameters: { type: "object" } } } };
 `;
-    expect(() => parseAgentMdFromString(raw)).toThrow(/required\.startup.*does not match/i);
+    expect(() => agentTemplateToJson(raw)).toThrow(/required\.startup.*does not match/i);
   });
 
   it("throws on invalid type for known scalar fields", () => {
@@ -345,7 +345,7 @@ title: 123
 
 # Title
 `;
-    expect(() => parseAgentMdFromString(raw)).toThrow(/Invalid frontmatter 'title': expected a string/);
+    expect(() => agentTemplateToJson(raw)).toThrow(/Invalid frontmatter 'title': expected a string/);
   });
 
   it("parses Claude-style commands from a ## Commands section", () => {
@@ -373,7 +373,7 @@ description: Commit changes
 - Current git status: !\`git status\`
 `.trim();
 
-    const parsed = parseAgentMdFromString(raw);
+    const parsed = agentTemplateToJson(raw);
 
     expect(parsed.commands).toEqual([
       {
