@@ -300,6 +300,50 @@ title: 123
 `;
     expect(() => parseAgentMdFromString(raw)).toThrow(/Invalid frontmatter 'title': expected a string/);
   });
+
+  it("parses Claude-style commands from a ## Commands section", () => {
+    const raw = `
+# Agent with commands
+
+## Commands
+
+### Review
+---
+argument-hint: [pr-number] [priority] [assignee]
+description: Review pull request
+---
+
+Review PR #$1 with priority $2 and assign to $3.
+Focus on security, performance, and code style.
+
+### Commit
+---
+allowed-tools: Bash(git add:*), Bash(git commit:*)
+argument-hint: [message]
+description: Commit changes
+---
+
+- Current git status: !\`git status\`
+`.trim();
+
+    const parsed = parseAgentMdFromString(raw);
+
+    expect(parsed.commands).toEqual([
+      {
+        name: "Review",
+        description: "Review pull request",
+        body: "Review PR #$1 with priority $2 and assign to $3.\nFocus on security, performance, and code style.\n",
+        "argument-hint": "[pr-number] [priority] [assignee]",
+      },
+      {
+        name: "Commit",
+        description: "Commit changes",
+        body: "- Current git status: !`git status`\n",
+        "allowed-tools": "Bash(git add:*), Bash(git commit:*)",
+        "argument-hint": "[message]",
+      },
+    ]);
+  });
 });
 
 describe("parseAgentMd()", () => {

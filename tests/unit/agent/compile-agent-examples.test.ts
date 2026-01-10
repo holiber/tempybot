@@ -50,14 +50,14 @@ const EXPECTED_AGENT_DEFINITION_KEYS = [
 ].sort();
 
 describe("agent examples compile (docs/agent-examples -> docs/generated/agent-examples)", () => {
-  it("compiles 10 example agents to deterministic JSON (and writes manifest/report)", async () => {
+  it("compiles 11 example agents to deterministic JSON (and writes manifest/report)", async () => {
     const ROOT = process.cwd();
     const examplesDir = path.join(ROOT, "docs", "agent-examples");
     const outDir = path.join(ROOT, "docs", "generated", "agent-examples");
 
     const entries = await fs.readdir(examplesDir);
     const mdFiles = entries.filter((f) => f.endsWith(".agent.md")).sort((a, b) => a.localeCompare(b));
-    expect(mdFiles).toHaveLength(10);
+    expect(mdFiles).toHaveLength(11);
 
     await fs.mkdir(outDir, { recursive: true });
 

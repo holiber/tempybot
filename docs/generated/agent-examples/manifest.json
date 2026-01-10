@@ -1,5 +1,11 @@
 [
   {
+    "output": "docs/generated/agent-examples/claude-style-commands.json",
+    "source": "docs/agent-examples/claude-style-commands.agent.md",
+    "status": "active",
+    "title": "Agent with commands"
+  },
+  {
     "output": "docs/generated/agent-examples/codebase-migration-planner.json",
     "source": "docs/agent-examples/codebase-migration-planner.agent.md",
     "status": "active",
