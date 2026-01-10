@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { startServer } from "../../../src/server.js";
-import { startWebSession, userSleep, userType } from "../../test-utils.js";
+import { startWebSession, userSleep, userType } from "../test-utils.js";
 
 test("web scenario: logs in and sees greetings", async () => {
   const server = await startServer();

@@ -21,7 +21,7 @@ test.skip("agnet CLI scenario tests are temporarily disabled (see note above)", 
 /*
 import { expect, test } from "vitest";
 import path from "node:path";
-import { CliSession } from "../../test-utils.js";
+import { CliSession } from "../test-utils.js";
 
 test("agnet doctor prints header and template count", async () => {
   const script = path.join(process.cwd(), "scripts", "agnet.ts");

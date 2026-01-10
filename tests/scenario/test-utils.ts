@@ -2,6 +2,14 @@ import * as pty from "node-pty";
 import { chromium, devices, type Browser, type BrowserContext, type Page } from "playwright";
 
 /**
+ * Scenario-only test utilities.
+ *
+ * IMPORTANT:
+ * - PTY-based terminals (node-pty) can be flaky on CI depending on the runner image.
+ * - Do NOT use CliSession in unit tests. Prefer spawnSync/execFile for unit-level CLI testing.
+ */
+
+/**
  * SCENARIO_MODE:
  * - "smoke"    -> no delays, fastest possible execution
  * - "userlike" -> real pauses and typing delays (human-like)
@@ -29,8 +37,6 @@ export async function userSleep(ms = 1500): Promise<void> {
 export async function userTypeDelay(ms = 40): Promise<void> {
   await userSleep(ms);
 }
-
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /**
  * CliSession
@@ -102,16 +108,26 @@ export class CliSession {
   }
 
   async waitFor(pattern: RegExp | string, timeoutMs = 20_000): Promise<void> {
-    const started = Date.now();
-    while (Date.now() - started < timeoutMs) {
+    const matches = () => {
       const content = this.buffer;
-      const matched =
-        typeof pattern === "string" ? content.includes(pattern) : pattern.test(content);
-      if (matched) return;
-      await sleep(50);
-    }
+      return typeof pattern === "string" ? content.includes(pattern) : pattern.test(content);
+    };
 
-    throw new Error(`Timeout waiting for: ${String(pattern)}\n\nCLI output so far:\n${this.buffer}`);
+    if (matches()) return;
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        dispose.dispose();
+        reject(new Error(`Timeout waiting for: ${String(pattern)}\n\nCLI output so far:\n${this.buffer}`));
+      }, timeoutMs);
+
+      const dispose = this.term.onData(() => {
+        if (!matches()) return;
+        clearTimeout(timer);
+        dispose.dispose();
+        resolve();
+      });
+    });
   }
 }
 
@@ -126,8 +142,7 @@ export async function startWebSession(): Promise<WebSession> {
   const browser = await chromium.launch({ headless: true });
 
   let context: BrowserContext;
-  const recordVideoDir =
-    SCENARIO_MODE === "userlike" ? process.env.E2E_WEB_VIDEO_DIR : undefined;
+  const recordVideoDir = SCENARIO_MODE === "userlike" ? process.env.E2E_WEB_VIDEO_DIR : undefined;
 
   if (SCENARIO_WEB_DEVICE === "mobile") {
     const device = devices["iPhone 14"];

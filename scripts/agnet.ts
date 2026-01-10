@@ -110,7 +110,10 @@ async function ensureDir(dir: string): Promise<void> {
 }
 
 async function transpileTsToJsFile(opts: { inPath: string; outPath: string }): Promise<void> {
-  const ts = await import("typescript");
+  const tsMod = await import("typescript");
+  // In some Node/CJS interop modes, TypeScript is only available under `default`.
+  const ts: typeof import("typescript") = ((tsMod as unknown as { default?: unknown }).default ??
+    tsMod) as typeof import("typescript");
   const source = await fs.readFile(opts.inPath, "utf8");
   const transpiled = ts.transpileModule(source, {
     compilerOptions: {

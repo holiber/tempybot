@@ -23,11 +23,15 @@ function runAgnet(args: string[]): RunResult {
   };
 }
 
+function combinedOutput(r: RunResult): string {
+  return `stdout:\n${r.stdout}\n\nstderr:\n${r.stderr}\n`;
+}
+
 describe("agnet.ts CLI (unit)", () => {
   it("doctor prints header and template count", () => {
     const template = path.join(process.cwd(), "agents", "repoboss.agent.md");
     const res = runAgnet(["--templates", template, "doctor"]);
-    expect(res.code).toBe(0);
+    expect(res.code, combinedOutput(res)).toBe(0);
     expect(res.stdout).toContain("Doctor");
     expect(res.stdout).toContain("Templates loaded: 1");
   });
@@ -35,7 +39,7 @@ describe("agnet.ts CLI (unit)", () => {
   it("run --world prints stub world", () => {
     const template = path.join(process.cwd(), "agents", "repoboss.agent.md");
     const res = runAgnet(["--templates", template, "run", "--world"]);
-    expect(res.code).toBe(0);
+    expect(res.code, combinedOutput(res)).toBe(0);
     expect(res.stdout).toContain("WORLD");
     expect(`${res.stdout}${res.stderr}`).toMatch(/items:\s*0/);
   });
