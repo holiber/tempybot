@@ -3,7 +3,9 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-function printMainHelp(): void {
+type OutputMode = "text" | "json";
+
+function mainHelpText(): string {
   const text = `
 agnet.ts --templates <path> doctor
 agnet.ts --templates <path> run --world
@@ -11,17 +13,16 @@ agnet.ts tools
 
 Global flags:
   --templates <path>   Agent template file (.agent.md) or directory (loads **/*.agent.md)
-  --json               JSON output (stub)
+  --json               JSON output
 
 Examples:
   node scripts/agnet.ts --templates agents/repoboss.agent.md doctor
   node scripts/agnet.ts --templates agents/repoboss.agent.md run --world
 `.trim();
-  // eslint-disable-next-line no-console
-  console.log(text);
+  return text;
 }
 
-function printToolsHelp(): void {
+function toolsHelpText(): string {
   const text = `
 agnet.ts tools
 
@@ -31,19 +32,17 @@ Planned (Tier 1 contract):
   agnet.ts tools gh "<command>"
   agnet.ts tools mcp call <method> --args <json> --spec <openapi.yml>
 `.trim();
-  // eslint-disable-next-line no-console
-  console.log(text);
+  return text;
 }
 
-function printRunHelp(): void {
+function runHelpText(): string {
   const text = `
 agnet.ts --templates <path> run --world
 
 Flags:
   --world   Print a stub STC.World snapshot (Tier 1 MVP)
 `.trim();
-  // eslint-disable-next-line no-console
-  console.log(text);
+  return text;
 }
 
 function normalizePosixPath(p: string): string {
@@ -58,6 +57,41 @@ function toRelPath(p: string, cwd: string): string {
 
 function hasFlag(argv: string[], name: string): boolean {
   return argv.includes(name);
+}
+
+function outputMode(argv: string[]): OutputMode {
+  return hasFlag(argv, "--json") ? "json" : "text";
+}
+
+function printHelp(mode: OutputMode, help: { command: string; text: string }): void {
+  if (mode === "json") {
+    // eslint-disable-next-line no-console
+    console.log(JSON.stringify({ ok: true, command: help.command, help: help.text }, null, 2));
+    return;
+  }
+  // eslint-disable-next-line no-console
+  console.log(help.text);
+}
+
+function printError(mode: OutputMode, error: { command?: string; message: string; helpText?: string }): void {
+  if (mode === "json") {
+    // eslint-disable-next-line no-console
+    console.log(
+      JSON.stringify(
+        {
+          ok: false,
+          ...(error.command ? { command: error.command } : {}),
+          error: { message: error.message },
+          ...(error.helpText ? { help: error.helpText } : {}),
+        },
+        null,
+        2
+      )
+    );
+    return;
+  }
+  // eslint-disable-next-line no-console
+  console.error(error.message);
 }
 
 function getFlagValues(argv: string[], name: string): string[] {
@@ -133,28 +167,38 @@ async function ensureAgentParserBuilt(cwd: string): Promise<string> {
   // resolve `./types.js` -> `./types.ts`. Instead, we transpile just the needed
   // modules into a small cache and import the JS output.
   const cacheRoot = path.join(cwd, ".cache", "agnet-ts-runtime");
-  const srcRoot = path.join(cwd, "src", "agent");
-  const outRoot = path.join(cacheRoot, "agent");
+  const candidates: Array<{ name: string; srcRoot: string }> = [
+    { name: "md-parser", srcRoot: path.join(cwd, "src", "md-parser") },
+    { name: "agent", srcRoot: path.join(cwd, "src", "agent") },
+  ];
 
-  const typesIn = path.join(srcRoot, "types.ts");
-  const parserIn = path.join(srcRoot, "parse-agent-md.ts");
+  const resolved = await (async () => {
+    for (const c of candidates) {
+      const typesIn = path.join(c.srcRoot, "types.ts");
+      const parserIn = path.join(c.srcRoot, "parse-agent-md.ts");
+      const typesInStat = await statSafe(typesIn);
+      const parserInStat = await statSafe(parserIn);
+      if (typesInStat && parserInStat) return { ...c, typesIn, parserIn, typesInStat, parserInStat };
+    }
+    return null;
+  })();
+
+  if (!resolved) {
+    throw new Error(`Internal parser sources not found under src/md-parser or src/agent.`);
+  }
+
+  const outRoot = path.join(cacheRoot, resolved.name);
   const typesOut = path.join(outRoot, "types.js");
   const parserOut = path.join(outRoot, "parse-agent-md.js");
-
-  const typesInStat = await statSafe(typesIn);
-  const parserInStat = await statSafe(parserIn);
-  if (!typesInStat || !parserInStat) {
-    throw new Error(`Internal parser sources not found under ${toRelPath(srcRoot, cwd)}.`);
-  }
 
   const typesOutStat = await statSafe(typesOut);
   const parserOutStat = await statSafe(parserOut);
 
-  const needsTypes = !typesOutStat || typesOutStat.mtimeMs < typesInStat.mtimeMs;
-  const needsParser = !parserOutStat || parserOutStat.mtimeMs < parserInStat.mtimeMs;
+  const needsTypes = !typesOutStat || typesOutStat.mtimeMs < resolved.typesInStat.mtimeMs;
+  const needsParser = !parserOutStat || parserOutStat.mtimeMs < resolved.parserInStat.mtimeMs;
 
-  if (needsTypes) await transpileTsToJsFile({ inPath: typesIn, outPath: typesOut });
-  if (needsParser) await transpileTsToJsFile({ inPath: parserIn, outPath: parserOut });
+  if (needsTypes) await transpileTsToJsFile({ inPath: resolved.typesIn, outPath: typesOut });
+  if (needsParser) await transpileTsToJsFile({ inPath: resolved.parserIn, outPath: parserOut });
 
   return parserOut;
 }
@@ -221,12 +265,29 @@ async function loadTemplates(opts: { templates: string[]; cwd: string }): Promis
   return { files };
 }
 
-async function cmdDoctor(opts: { templates: string[]; cwd: string }): Promise<number> {
+async function cmdDoctor(opts: { templates: string[]; cwd: string; mode: OutputMode }): Promise<number> {
   const { files } = await loadTemplates(opts);
   const { parseAgentMd } = await loadAgentParser(opts.cwd);
 
   // Parse to validate.
   for (const f of files) await parseAgentMd(f);
+
+  if (opts.mode === "json") {
+    // eslint-disable-next-line no-console
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          command: "doctor",
+          templatesLoaded: files.length,
+          templates: files.map((f) => toRelPath(f, opts.cwd)),
+        },
+        null,
+        2
+      )
+    );
+    return 0;
+  }
 
   // eslint-disable-next-line no-console
   console.log("Doctor");
@@ -239,10 +300,20 @@ async function cmdDoctor(opts: { templates: string[]; cwd: string }): Promise<nu
   return 0;
 }
 
-async function cmdRun(opts: { templates: string[]; cwd: string; argv: string[] }): Promise<number> {
+async function cmdRun(opts: {
+  templates: string[];
+  cwd: string;
+  argv: string[];
+  mode: OutputMode;
+}): Promise<number> {
   const wantWorld = hasFlag(opts.argv, "--world");
   if (!wantWorld) {
-    printRunHelp();
+    if (opts.mode === "json") {
+      printError(opts.mode, { command: "run", message: "Missing required flag: --world", helpText: runHelpText() });
+      return 2;
+    }
+    // eslint-disable-next-line no-console
+    console.log(runHelpText());
     return 2;
   }
 
@@ -253,6 +324,12 @@ async function cmdRun(opts: { templates: string[]; cwd: string; argv: string[] }
   for (const f of files) await parseAgentMd(f);
 
   // Tier 1 stub world.
+  if (opts.mode === "json") {
+    // eslint-disable-next-line no-console
+    console.log(JSON.stringify({ ok: true, command: "run", world: { items: 0 } }, null, 2));
+    return 0;
+  }
+
   // eslint-disable-next-line no-console
   console.log("WORLD");
   // eslint-disable-next-line no-console
@@ -260,17 +337,32 @@ async function cmdRun(opts: { templates: string[]; cwd: string; argv: string[] }
   return 0;
 }
 
-async function cmdTools(opts: { argv: string[] }): Promise<number> {
+async function cmdTools(opts: { argv: string[]; mode: OutputMode }): Promise<number> {
   const rest = stripGlobalFlags(opts.argv);
   const sub = rest[1]; // [ "tools", ... ]
 
   if (sub === undefined || sub === "help") {
-    printToolsHelp();
+    if (opts.mode === "json") {
+      printHelp(opts.mode, { command: "tools", text: toolsHelpText() });
+      return 0;
+    }
+    // eslint-disable-next-line no-console
+    console.log(toolsHelpText());
     return 0;
   }
 
   // Wrong usage for now.
-  printToolsHelp();
+  if (opts.mode === "json") {
+    printError(opts.mode, {
+      command: "tools",
+      message: `Unknown tools command: ${sub}`,
+      helpText: toolsHelpText(),
+    });
+    return 2;
+  }
+
+  // eslint-disable-next-line no-console
+  console.log(toolsHelpText());
   // eslint-disable-next-line no-console
   console.error(`Unknown tools command: ${sub}`);
   return 2;
@@ -278,32 +370,36 @@ async function cmdTools(opts: { argv: string[] }): Promise<number> {
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const cwd = process.cwd();
+  const mode = outputMode(argv);
   const help = argv.includes("-h") || argv.includes("--help");
   const templates = getFlagValues(argv, "--templates");
-  // Minimal stub for now; parsing is enough to keep the contract stable.
-  void hasFlag(argv, "--json");
 
   const positional = stripGlobalFlags(argv).filter((a) => !a.startsWith("-"));
   const command = positional[0];
 
   if (help || !command) {
-    printMainHelp();
+    printHelp(mode, { command: "help", text: mainHelpText() });
     return 0;
   }
 
   try {
-    if (command === "doctor") return await cmdDoctor({ templates, cwd });
-    if (command === "run") return await cmdRun({ templates, cwd, argv });
-    if (command === "tools") return await cmdTools({ argv });
+    if (command === "doctor") return await cmdDoctor({ templates, cwd, mode });
+    if (command === "run") return await cmdRun({ templates, cwd, argv, mode });
+    if (command === "tools") return await cmdTools({ argv, mode });
+
+    if (mode === "json") {
+      printError(mode, { message: `Unknown command: ${command}`, helpText: mainHelpText() });
+      return 2;
+    }
 
     // eslint-disable-next-line no-console
     console.error(`Unknown command: ${command}`);
-    printMainHelp();
+    // eslint-disable-next-line no-console
+    console.log(mainHelpText());
     return 2;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    // eslint-disable-next-line no-console
-    console.error(msg);
+    printError(mode, { command, message: msg });
     return 1;
   }
 }
