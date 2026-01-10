@@ -41,6 +41,8 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 export class CliSession {
   private term: pty.IPty;
   private buffer = "";
+  private exitInfo: { exitCode: number; signal: number } | null = null;
+  private exitPromise: Promise<{ exitCode: number; signal: number }>;
 
   constructor(cmd: string, args: string[], cwd: string) {
     this.term = pty.spawn(cmd, args, {
@@ -49,6 +51,13 @@ export class CliSession {
       cols: 120,
       rows: 30,
       env: { ...process.env, FORCE_COLOR: "1" },
+    });
+
+    this.exitPromise = new Promise((resolve) => {
+      this.term.onExit((e) => {
+        this.exitInfo = { exitCode: e.exitCode, signal: e.signal };
+        resolve(this.exitInfo);
+      });
     });
 
     this.term.onData((data) => {
@@ -66,6 +75,18 @@ export class CliSession {
 
   kill(): void {
     this.term.kill();
+  }
+
+  async waitForExit(timeoutMs = 20_000): Promise<{ exitCode: number; signal: number }> {
+    if (this.exitInfo) return this.exitInfo;
+
+    const timeout = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Timeout waiting for process exit.\n\nCLI output so far:\n${this.buffer}`));
+      }, timeoutMs);
+    });
+
+    return await Promise.race([this.exitPromise, timeout]);
   }
 
   async typeCharByChar(text: string, onEachChar?: () => Promise<void>): Promise<void> {
