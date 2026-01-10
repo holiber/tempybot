@@ -39,6 +39,15 @@ export type AgentInlineCommand = {
 
 export type AgentCommand = string | AgentInlineCommand;
 
+export type McpServerConfig = {
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+};
+
+export type McpServersConfig = Record<string, McpServerConfig>;
+
 /**
  * Deterministic parse output for `.agent.md` files.
  *
@@ -66,6 +75,11 @@ export type AgentDefinition = {
   recommended: AgentRecommended;
   required: AgentRequired;
   commands: AgentCommand[];
+  /**
+   * Optional MCP server configuration extracted from YAML frontmatter.
+   * Server keys and environment variable keys are preserved as provided.
+   */
+  mcpServers?: McpServersConfig;
   system: string;
   rules: string;
   toolsSource: string;

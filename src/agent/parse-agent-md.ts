@@ -6,13 +6,21 @@ import remarkFrontmatter from "remark-frontmatter";
 import { toString } from "mdast-util-to-string";
 import YAML from "yaml";
 import type { Root, Content, Heading, Paragraph } from "mdast";
-import type { AgentAbilities, AgentCommand, AgentDefinition, AgentStatus } from "./types.js";
+import type { AgentAbilities, AgentCommand, AgentDefinition, AgentStatus, McpServersConfig } from "./types.js";
 import { AGENT_DEFINITION_DEFAULTS } from "./types.js";
 
 type Frontmatter = Record<string, unknown>;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function getTopLevelKeyCaseInsensitive(obj: Record<string, unknown>, key: string): unknown {
+  const keyLc = key.toLowerCase();
+  for (const [k, v] of Object.entries(obj)) {
+    if (k.toLowerCase() === keyLc) return v;
+  }
+  return undefined;
 }
 
 function normalizeComparableText(s: string): string {
@@ -444,6 +452,78 @@ function getCommandsStrict(v: unknown): AgentCommand[] | undefined {
   return out;
 }
 
+function getMcpServersStrict(v: unknown): McpServersConfig | undefined {
+  if (v === undefined) return undefined;
+  if (!isPlainObject(v)) {
+    throw new Error(`Invalid frontmatter 'mcpServers': expected an object.`);
+  }
+
+  const out: McpServersConfig = {};
+  for (const [serverName, serverValue] of Object.entries(v)) {
+    if (serverName.trim().length === 0) {
+      throw new Error(`Invalid frontmatter 'mcpServers': server name must be non-empty.`);
+    }
+    if (!isPlainObject(serverValue)) {
+      throw new Error(`Invalid frontmatter 'mcpServers.${serverName}': expected an object.`);
+    }
+
+    const command = getStringStrict({
+      key: `mcpServers.${serverName}.command`,
+      v: (serverValue as Record<string, unknown>).command,
+    });
+    if (!command) {
+      throw new Error(`Invalid frontmatter 'mcpServers.${serverName}.command': must be a non-empty string.`);
+    }
+
+    const rawArgs = (serverValue as Record<string, unknown>).args;
+    let args: string[] | undefined;
+    if (rawArgs !== undefined) {
+      if (!Array.isArray(rawArgs)) {
+        throw new Error(`Invalid frontmatter 'mcpServers.${serverName}.args': expected an array of strings.`);
+      }
+      for (let i = 0; i < rawArgs.length; i++) {
+        const item = rawArgs[i];
+        if (typeof item !== "string" || item.trim().length === 0) {
+          throw new Error(`Invalid frontmatter 'mcpServers.${serverName}.args[${i}]': expected a non-empty string.`);
+        }
+      }
+      args = rawArgs.map((x) => (x as string).trim());
+    }
+
+    const rawEnv = (serverValue as Record<string, unknown>).env;
+    let env: Record<string, string> | undefined;
+    if (rawEnv !== undefined) {
+      if (!isPlainObject(rawEnv)) {
+        throw new Error(`Invalid frontmatter 'mcpServers.${serverName}.env': expected an object of strings.`);
+      }
+      env = {};
+      for (const [k, val] of Object.entries(rawEnv)) {
+        if (k.trim().length === 0) {
+          throw new Error(`Invalid frontmatter 'mcpServers.${serverName}.env': keys must be non-empty strings.`);
+        }
+        if (typeof val !== "string") {
+          throw new Error(`Invalid frontmatter 'mcpServers.${serverName}.env.${k}': expected a string.`);
+        }
+        env[k] = val;
+      }
+    }
+
+    const cwd = getStringStrict({
+      key: `mcpServers.${serverName}.cwd`,
+      v: (serverValue as Record<string, unknown>).cwd,
+    });
+
+    out[serverName] = {
+      command,
+      ...(args !== undefined ? { args } : {}),
+      ...(env !== undefined ? { env } : {}),
+      ...(cwd !== undefined ? { cwd } : {}),
+    };
+  }
+
+  return out;
+}
+
 function normalizeAbility(raw: string): string {
   return raw.trim().toLowerCase();
 }
@@ -836,6 +916,9 @@ export function parseAgentMdFromString(raw: string): AgentDefinition {
 
   const frontmatterRaw = (parsed.data ?? {}) as Frontmatter;
   const fm = lowercaseKeysDeep(frontmatterRaw) as Frontmatter;
+  const mcpServers = getMcpServersStrict(
+    isPlainObject(frontmatterRaw) ? getTopLevelKeyCaseInsensitive(frontmatterRaw, "mcpServers") : undefined,
+  );
 
   const tree = unified().use(remarkParse).use(remarkFrontmatter, ["yaml"]).parse(parsed.content) as Root;
 
@@ -948,6 +1031,7 @@ export function parseAgentMdFromString(raw: string): AgentDefinition {
     recommended,
     required,
     commands,
+    ...(mcpServers !== undefined ? { mcpServers } : {}),
     system,
     rules,
     toolsSource: sections.tools || AGENT_DEFINITION_DEFAULTS.toolsSource,
