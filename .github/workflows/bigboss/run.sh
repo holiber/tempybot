@@ -136,9 +136,6 @@ if (data && typeof data === "object") {
     // PRs can be commented through the issues API as well.
     kind = "issue";
     number = String(data.pull_request.number);
-  } else if (data.discussion?.number) {
-    kind = "discussion";
-    number = String(data.discussion.number);
   } else if (typeof data.pull_request_url === "string" && data.pull_request_url.trim()) {
     // pull_request_review_comment payload includes `pull_request_url` like:
     // https://api.github.com/repos/<owner>/<repo>/pulls/<number>
@@ -179,85 +176,79 @@ process.stdout.write(after);
 NODE
 }
 
-ensure_state_discussion_number() {
-  local title="${BIGBOSS_STATE_DISCUSSION_TITLE:-BigBoss State}"
-  local owner repo
-  owner="${GITHUB_REPOSITORY%/*}"
-  repo="${GITHUB_REPOSITORY#*/}"
+ensure_state_issue_number() {
+  local title="${BIGBOSS_STATE_ISSUE_TITLE:-BigBoss State}"
+  local label="${BIGBOSS_MEMORY_LABEL:-BOSSS}"
 
-  local q out
-  q='query($owner:String!,$name:String!){
-    repository(owner:$owner,name:$name){
-      id
-      discussionCategories(first:20){ nodes { id name } }
-      discussions(first:50, orderBy:{field:UPDATED_AT,direction:DESC}){ nodes { title number } }
-    }
-  }'
-  out="$(gh api graphql -f query="$q" -f owner="$owner" -f name="$repo" 2>/dev/null || true)"
-  if [ -z "$out" ]; then
+  local raw
+  raw="$(gh api "repos/${GITHUB_REPOSITORY}/issues" -F state=all -F per_page=100 -F labels="$label" 2>/dev/null || true)"
+  if [ -z "$raw" ]; then
     echo ""
     return 0
   fi
 
-  node - <<'NODE' "$out" "$title"
-const raw = process.argv[1] ?? "";
+  node - <<'NODE' "$raw" "$title"
+const raw = process.argv[1] ?? "[]";
 const wantTitle = process.argv[2] ?? "BigBoss State";
-let data;
-try { data = JSON.parse(raw); } catch { process.stdout.write(""); process.exit(0); }
-const repo = data?.data?.repository;
-const discussions = Array.isArray(repo?.discussions?.nodes) ? repo.discussions.nodes : [];
-const existing = discussions.find((d) => (d?.title ?? "") === wantTitle);
-if (existing?.number) {
-  process.stdout.write(String(existing.number));
-  process.exit(0);
-}
-const categories = Array.isArray(repo?.discussionCategories?.nodes) ? repo.discussionCategories.nodes : [];
-const cat = categories.find((c) => (c?.name ?? "").toLowerCase() === "general") ?? categories[0];
-if (!repo?.id || !cat?.id) {
-  process.stdout.write("");
-  process.exit(0);
-}
-process.stdout.write(JSON.stringify({ repositoryId: repo.id, categoryId: cat.id }));
+let arr = [];
+try { arr = JSON.parse(raw); } catch {}
+if (!Array.isArray(arr)) process.exit(0);
+// Prefer a real issue (not a PR) whose title matches.
+const existing = arr.find((x) => !x?.pull_request && (x?.title ?? "") === wantTitle);
+if (existing?.number) process.stdout.write(String(existing.number));
 NODE
 }
 
-create_state_discussion() {
-  local title="${BIGBOSS_STATE_DISCUSSION_TITLE:-BigBoss State}"
+create_state_issue() {
+  local title="${BIGBOSS_STATE_ISSUE_TITLE:-BigBoss State}"
+  local label="${BIGBOSS_MEMORY_LABEL:-BOSSS}"
   local body="$1"
-  local meta="$2" # JSON: { repositoryId, categoryId }
 
-  if [ -z "$meta" ]; then
-    echo ""
-    return 0
-  fi
-
-  local repositoryId categoryId
-  repositoryId="$(node -p 'JSON.parse(process.argv[1]).repositoryId' "$meta" 2>/dev/null || true)"
-  categoryId="$(node -p 'JSON.parse(process.argv[1]).categoryId' "$meta" 2>/dev/null || true)"
-  if [ -z "$repositoryId" ] || [ -z "$categoryId" ]; then
-    echo ""
-    return 0
-  fi
-
-  local m out
-  m='mutation($repositoryId:ID!,$categoryId:ID!,$title:String!,$body:String!){
-    createDiscussion(input:{repositoryId:$repositoryId,categoryId:$categoryId,title:$title,body:$body}){
-      discussion{ number }
-    }
-  }'
-  out="$(gh api graphql -f query="$m" -f repositoryId="$repositoryId" -f categoryId="$categoryId" -f title="$title" -f body="$body" 2>/dev/null || true)"
+  local out
+  out="$(gh api -X POST "repos/${GITHUB_REPOSITORY}/issues" -f title="$title" -f body="$body" -f "labels[]=$label" 2>/dev/null || true)"
   node - <<'NODE' "$out"
 try {
   const j = JSON.parse(process.argv[1] ?? "");
-  const n = j?.data?.createDiscussion?.discussion?.number;
-  if (n) process.stdout.write(String(n));
+  if (j?.number) process.stdout.write(String(j.number));
 } catch {}
 NODE
 }
 
-ensure_memory_discussion_number() {
-  local title="${BIGBOSS_MEMORY_DISCUSSION_TITLE:-BigBoss Memory}"
-  BIGBOSS_STATE_DISCUSSION_TITLE="$title" ensure_state_discussion_number
+ensure_memory_issue_number() {
+  local title="${BIGBOSS_MEMORY_ISSUE_TITLE:-BigBoss Memory}"
+  local label="${BIGBOSS_MEMORY_LABEL:-BOSSS}"
+
+  local raw
+  raw="$(gh api "repos/${GITHUB_REPOSITORY}/issues" -F state=all -F per_page=100 -F labels="$label" 2>/dev/null || true)"
+  if [ -z "$raw" ]; then
+    echo ""
+    return 0
+  fi
+
+  node - <<'NODE' "$raw" "$title"
+const raw = process.argv[1] ?? "[]";
+const wantTitle = process.argv[2] ?? "BigBoss Memory";
+let arr = [];
+try { arr = JSON.parse(raw); } catch {}
+if (!Array.isArray(arr)) process.exit(0);
+const existing = arr.find((x) => !x?.pull_request && (x?.title ?? "") === wantTitle);
+if (existing?.number) process.stdout.write(String(existing.number));
+NODE
+}
+
+create_memory_issue() {
+  local title="${BIGBOSS_MEMORY_ISSUE_TITLE:-BigBoss Memory}"
+  local label="${BIGBOSS_MEMORY_LABEL:-BOSSS}"
+  local body="$1"
+
+  local out
+  out="$(gh api -X POST "repos/${GITHUB_REPOSITORY}/issues" -f title="$title" -f body="$body" -f "labels[]=$label" 2>/dev/null || true)"
+  node - <<'NODE' "$out"
+try {
+  const j = JSON.parse(process.argv[1] ?? "");
+  if (j?.number) process.stdout.write(String(j.number));
+} catch {}
+NODE
 }
 
 post_notice() {
@@ -269,18 +260,17 @@ post_notice() {
   number="${BIGBOSS_NOTIFY_NUMBER:-}"
 
   if [ -z "$kind" ] || [ -z "$number" ]; then
-    # No thread context (e.g. cron). Post to state discussion.
+    # No thread context (e.g. cron). Post to state issue (labelled BOSSS).
     local state
-    state="$(ensure_state_discussion_number)"
+    state="$(ensure_state_issue_number)"
     if [[ "$state" =~ ^[0-9]+$ ]]; then
-      kind="discussion"
+      kind="issue"
       number="$state"
     else
-      # state contains repo/category ids for creation
       local created
-      created="$(create_state_discussion "$msg" "$state")"
+      created="$(create_state_issue "$msg")"
       if [[ "$created" =~ ^[0-9]+$ ]]; then
-        kind="discussion"
+        kind="issue"
         number="$created"
       fi
     fi
@@ -294,10 +284,6 @@ post_notice() {
 
   if [ "$kind" = "issue" ]; then
     gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${number}/comments" -f body="$msg" >/dev/null || true
-    return 0
-  fi
-  if [ "$kind" = "discussion" ]; then
-    gh api -X POST "repos/${GITHUB_REPOSITORY}/discussions/${number}/comments" -f body="$msg" >/dev/null || true
     return 0
   fi
 }
@@ -338,10 +324,10 @@ post_reply() {
 }
 
 memory_fetch_tail() {
-  local discussion_number="$1"
+  local issue_number="$1"
   local limit="${2:-8}"
   local raw
-  raw="$(gh api "repos/${GITHUB_REPOSITORY}/discussions/${discussion_number}/comments" -F per_page=100 2>/dev/null || true)"
+  raw="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue_number}/comments" -F per_page=100 2>/dev/null || true)"
   if [ -z "$raw" ]; then
     echo ""
     return 0
@@ -364,9 +350,9 @@ NODE
 }
 
 memory_append() {
-  local discussion_number="$1"
+  local issue_number="$1"
   local body="$2"
-  gh api -X POST "repos/${GITHUB_REPOSITORY}/discussions/${discussion_number}/comments" -f body="$body" >/dev/null || true
+  gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${issue_number}/comments" -f body="$body" >/dev/null || true
 }
 
 cursor_api_create_agent() {
@@ -470,24 +456,14 @@ EOF
 fi
 
 if [ -n "${PROMPT:-}" ]; then
-  # Ensure memory discussion exists (and fail loudly if Discussions are disabled).
-  mem_meta="$(ensure_memory_discussion_number)"
-  if [[ "$mem_meta" =~ ^[0-9]+$ ]]; then
-    mem_number="$mem_meta"
-  else
-    # `ensure_state_discussion_number` returns JSON when discussion is absent.
-    mem_number="$(create_state_discussion "BigBoss memory thread (auto-created). This stores a lightweight memory log between runs." "$mem_meta")"
+  # Ensure memory issue exists (labelled BOSSS).
+  mem_number="$(ensure_memory_issue_number)"
+  if ! [[ "${mem_number:-}" =~ ^[0-9]+$ ]]; then
+    mem_number="$(create_memory_issue "BigBoss memory thread (auto-created). This stores a lightweight memory log between runs." )"
   fi
 
   if ! [[ "${mem_number:-}" =~ ^[0-9]+$ ]]; then
-    post_reply "$(cat <<'EOF'
-### BigBoss setup: Discussions are required
-
-I was summoned, but I cannot persist memory because **GitHub Discussions** are disabled (or not accessible to the workflow token).
-
-- **Fix**: enable Discussions in repository settings
-EOF
-)"
+    post_reply "I was summoned, but I cannot create/find the memory issue (label \`${BIGBOSS_MEMORY_LABEL:-BOSSS}\`)."
     exit 1
   fi
 
