@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
  * MCP stdio server wrapper for Cursor Cloud Agents OpenAPI spec.
  *
  * This wrapper is intentionally tiny:
- * - Keeps secrets in env vars (CURSOR_API_KEY) rather than in config/args.
+ * - Keeps secrets in env vars rather than in config/args.
  * - Uses the repo-local dev dependency (via `npx --no-install`).
  */
 
@@ -28,7 +28,15 @@ const args = [
   "0.1.0",
 ];
 
-const apiKey = process.env.CURSOR_API_KEY;
+function readEnvAny(names) {
+  for (const name of names) {
+    const v = process.env[name];
+    if (v && v.trim()) return v.trim();
+  }
+  return undefined;
+}
+
+const apiKey = readEnvAny(["CURSOR_API_KEY", "CURSOR_CLOUD_API_KEY", "CURSORCLOUDAPIKEY"]);
 if (apiKey && apiKey.trim()) {
   args.push("--headers", `Authorization:Bearer ${apiKey.trim()}`);
 }

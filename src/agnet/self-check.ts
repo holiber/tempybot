@@ -27,6 +27,14 @@ function readEnv(name: string): string | undefined {
   return v && v.trim() ? v.trim() : undefined;
 }
 
+function readEnvAny(names: string[]): string | undefined {
+  for (const name of names) {
+    const v = readEnv(name);
+    if (v) return v;
+  }
+  return undefined;
+}
+
 function isRequireCursorCli(): boolean {
   return readEnv("AGNET_SELF_CHECK_REQUIRE_CURSOR_CLI") === "1";
 }
@@ -258,7 +266,7 @@ async function checkNodeScriptTool(args: {
 }
 
 async function checkCursorCloudApi(): Promise<SelfCheckItem> {
-  const apiKey = readEnv("CURSOR_API_KEY");
+  const apiKey = readEnvAny(["CURSOR_API_KEY", "CURSOR_CLOUD_API_KEY", "CURSORCLOUDAPIKEY"]);
   const require = isRequireCursorApi();
   if (!apiKey) {
     if (!require) {
@@ -267,11 +275,16 @@ async function checkCursorCloudApi(): Promise<SelfCheckItem> {
         ok: false,
         required: false,
         skipped: true,
-        error: { message: "CURSOR_API_KEY is not set." },
+        error: { message: "Cursor API key is not set (CURSOR_API_KEY / CURSOR_CLOUD_API_KEY / CURSORCLOUDAPIKEY)." },
         details: { note: "Not required (set AGNET_SELF_CHECK_REQUIRE_CURSOR_API=1 to require)." },
       };
     }
-    return { name: "cursor.api.models", ok: false, required: true, error: { message: "CURSOR_API_KEY is not set." } };
+    return {
+      name: "cursor.api.models",
+      ok: false,
+      required: true,
+      error: { message: "Cursor API key is not set (CURSOR_API_KEY / CURSOR_CLOUD_API_KEY / CURSORCLOUDAPIKEY)." },
+    };
   }
 
   const specPath = path.join(process.cwd(), "src", "agnet", "cloud-agents-openapi.yaml");
