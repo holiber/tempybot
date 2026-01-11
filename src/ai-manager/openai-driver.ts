@@ -121,6 +121,17 @@ export async function runOpenAiTurn(args: {
       const parsedArgs = parseJsonOrNull(c.arguments);
       toolCallsSeen.push({ name: c.name, callId: c.call_id, arguments: parsedArgs });
 
+      // IMPORTANT: For the next request, Responses API expects the *tool call item*
+      // to exist in the conversation before its corresponding `function_call_output`.
+      // Otherwise the API returns:
+      // "No tool call found for function call output with call_id ..."
+      inputItems.push({
+        type: "function_call",
+        call_id: c.call_id,
+        name: c.name,
+        arguments: c.arguments,
+      });
+
       const h = handlers.get(c.name);
       if (!h) {
         inputItems.push({
