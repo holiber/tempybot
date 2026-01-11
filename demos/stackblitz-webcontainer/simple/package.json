@@ -1,0 +1,14 @@
+{
+  "name": "tempybot-stackblitz-webcontainer-simple",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "description": "Simple StackBlitz WebContainer smoke demo.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}
+

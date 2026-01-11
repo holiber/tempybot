@@ -1,0 +1,26 @@
+{
+  "name": "tempybot-stackblitz-webcontainer-tempybot-cli",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "description": "Runs tempybot parse in a StackBlitz WebContainer (no native deps).",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "demo": "tsx src/cli.ts parse ./sample.agent.md && node -e \"console.log('STACKBLITZ_TEMPYBOT_CLI_OK')\"",
+    "start": "npm run -s demo"
+  },
+  "dependencies": {
+    "@types/node": "^22.10.7",
+    "gray-matter": "^4.0.3",
+    "mdast-util-to-string": "^4.0.0",
+    "remark-frontmatter": "^5.0.0",
+    "remark-parse": "^11.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "unified": "^11.0.5",
+    "yaml": "^2.8.2"
+  }
+}
+
