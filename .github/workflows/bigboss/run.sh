@@ -176,9 +176,48 @@ process.stdout.write(after);
 NODE
 }
 
-ensure_state_issue_number() {
-  local title="${BIGBOSS_STATE_ISSUE_TITLE:-BigBoss State}"
-  local label="${BIGBOSS_MEMORY_LABEL:-BOSSS}"
+bigboss_issue_title() {
+  if [ -n "${BIGBOSS_ISSUE_TITLE:-}" ]; then
+    echo "${BIGBOSS_ISSUE_TITLE}"
+    return 0
+  fi
+  # Back-compat: allow older env names, but default to a single reserved issue.
+  if [ -n "${BIGBOSS_MEMORY_ISSUE_TITLE:-}" ]; then
+    echo "${BIGBOSS_MEMORY_ISSUE_TITLE}"
+    return 0
+  fi
+  if [ -n "${BIGBOSS_STATE_ISSUE_TITLE:-}" ]; then
+    echo "${BIGBOSS_STATE_ISSUE_TITLE}"
+    return 0
+  fi
+  echo "BigBoss"
+}
+
+bigboss_label() {
+  echo "${BIGBOSS_MEMORY_LABEL:-BIGBOSS}"
+}
+
+ensure_label_exists() {
+  local label="$1"
+  if [ -z "${label:-}" ]; then
+    return 1
+  fi
+
+  if gh api "repos/${GITHUB_REPOSITORY}/labels/${label}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  # Create the label if missing (common root cause for issue creation failures).
+  gh api -X POST "repos/${GITHUB_REPOSITORY}/labels" \
+    -f name="$label" \
+    -f color="0E8A16" \
+    -f description="Bigboss bot internal label" \
+    >/dev/null 2>&1 || true
+}
+
+find_issue_number_by_label_and_title() {
+  local label="$1"
+  local title="$2"
 
   local raw
   raw="$(gh api "repos/${GITHUB_REPOSITORY}/issues" -F state=all -F per_page=100 -F labels="$label" 2>/dev/null || true)"
@@ -189,7 +228,7 @@ ensure_state_issue_number() {
 
   node - <<'NODE' "$raw" "$title"
 const raw = process.argv[1] ?? "[]";
-const wantTitle = process.argv[2] ?? "BigBoss State";
+const wantTitle = process.argv[2] ?? "BigBoss";
 let arr = [];
 try { arr = JSON.parse(raw); } catch {}
 if (!Array.isArray(arr)) process.exit(0);
@@ -199,47 +238,42 @@ if (existing?.number) process.stdout.write(String(existing.number));
 NODE
 }
 
-create_state_issue() {
-  local title="${BIGBOSS_STATE_ISSUE_TITLE:-BigBoss State}"
-  local label="${BIGBOSS_MEMORY_LABEL:-BOSSS}"
-  local body="$1"
+ensure_bigboss_issue_number() {
+  local title="$1"
+  local label
+  label="$(bigboss_label)"
+  local legacy_label="BOSSS"
 
-  local out
-  out="$(gh api -X POST "repos/${GITHUB_REPOSITORY}/issues" -f title="$title" -f body="$body" -f "labels[]=$label" 2>/dev/null || true)"
-  node - <<'NODE' "$out"
-try {
-  const j = JSON.parse(process.argv[1] ?? "");
-  if (j?.number) process.stdout.write(String(j.number));
-} catch {}
-NODE
-}
-
-ensure_memory_issue_number() {
-  local title="${BIGBOSS_MEMORY_ISSUE_TITLE:-BigBoss Memory}"
-  local label="${BIGBOSS_MEMORY_LABEL:-BOSSS}"
-
-  local raw
-  raw="$(gh api "repos/${GITHUB_REPOSITORY}/issues" -F state=all -F per_page=100 -F labels="$label" 2>/dev/null || true)"
-  if [ -z "$raw" ]; then
-    echo ""
+  local n
+  n="$(find_issue_number_by_label_and_title "$label" "$title")"
+  if [[ "${n:-}" =~ ^[0-9]+$ ]]; then
+    echo "$n"
     return 0
   fi
 
-  node - <<'NODE' "$raw" "$title"
-const raw = process.argv[1] ?? "[]";
-const wantTitle = process.argv[2] ?? "BigBoss Memory";
-let arr = [];
-try { arr = JSON.parse(raw); } catch {}
-if (!Array.isArray(arr)) process.exit(0);
-const existing = arr.find((x) => !x?.pull_request && (x?.title ?? "") === wantTitle);
-if (existing?.number) process.stdout.write(String(existing.number));
-NODE
+  # Migration: if we used to store memory under BOSSS, adopt that issue and move it to the new label.
+  if [ "$label" != "$legacy_label" ]; then
+    local legacy
+    legacy="$(find_issue_number_by_label_and_title "$legacy_label" "$title")"
+    if [[ "${legacy:-}" =~ ^[0-9]+$ ]]; then
+      ensure_label_exists "$label"
+      gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${legacy}/labels" -f "labels[]=${label}" >/dev/null 2>&1 || true
+      gh api -X DELETE "repos/${GITHUB_REPOSITORY}/issues/${legacy}/labels/${legacy_label}" >/dev/null 2>&1 || true
+      echo "$legacy"
+      return 0
+    fi
+  fi
+
+  echo ""
 }
 
-create_memory_issue() {
-  local title="${BIGBOSS_MEMORY_ISSUE_TITLE:-BigBoss Memory}"
-  local label="${BIGBOSS_MEMORY_LABEL:-BOSSS}"
-  local body="$1"
+create_bigboss_issue() {
+  local title="$1"
+  local body="$2"
+  local label
+  label="$(bigboss_label)"
+
+  ensure_label_exists "$label"
 
   local out
   out="$(gh api -X POST "repos/${GITHUB_REPOSITORY}/issues" -f title="$title" -f body="$body" -f "labels[]=$label" 2>/dev/null || true)"
@@ -249,6 +283,22 @@ try {
   if (j?.number) process.stdout.write(String(j.number));
 } catch {}
 NODE
+}
+
+ensure_state_issue_number() {
+  ensure_bigboss_issue_number "$(bigboss_issue_title)"
+}
+
+create_state_issue() {
+  create_bigboss_issue "$(bigboss_issue_title)" "$1"
+}
+
+ensure_memory_issue_number() {
+  ensure_bigboss_issue_number "$(bigboss_issue_title)"
+}
+
+create_memory_issue() {
+  create_bigboss_issue "$(bigboss_issue_title)" "$1"
 }
 
 post_notice() {
@@ -260,7 +310,7 @@ post_notice() {
   number="${BIGBOSS_NOTIFY_NUMBER:-}"
 
   if [ -z "$kind" ] || [ -z "$number" ]; then
-    # No thread context (e.g. cron). Post to state issue (labelled BOSSS).
+    # No thread context (e.g. cron). Post to the single BigBoss issue.
     local state
     state="$(ensure_state_issue_number)"
     if [[ "$state" =~ ^[0-9]+$ ]]; then
@@ -456,18 +506,19 @@ EOF
 fi
 
 if [ -n "${PROMPT:-}" ]; then
-  # Ensure memory issue exists (labelled BOSSS).
+  # Ensure the single reserved BigBoss issue exists (for memory + state).
+  memory_error=""
   mem_number="$(ensure_memory_issue_number)"
   if ! [[ "${mem_number:-}" =~ ^[0-9]+$ ]]; then
-    mem_number="$(create_memory_issue "BigBoss memory thread (auto-created). This stores a lightweight memory log between runs." )"
+    mem_number="$(create_memory_issue "BigBoss bot thread (auto-created). This stores a lightweight memory log between runs." )"
   fi
 
   if ! [[ "${mem_number:-}" =~ ^[0-9]+$ ]]; then
-    post_reply "I was summoned, but I cannot create/find the memory issue (label \`${BIGBOSS_MEMORY_LABEL:-BOSSS}\`)."
-    exit 1
+    memory_error="I could not create/find the memory issue (label \`$(bigboss_label)\`)."
+    mem_tail=""
+  else
+    mem_tail="$(memory_fetch_tail "$mem_number" 8)"
   fi
-
-  mem_tail="$(memory_fetch_tail "$mem_number" 8)"
 
   full_prompt="$(cat <<EOF
 You are BigBoss, an AI assistant for the GitHub repo https://github.com/${GITHUB_REPOSITORY}.
@@ -527,20 +578,47 @@ EOF
   done
 
   if [ -z "${reply_text:-}" ]; then
-    post_reply "$(cat <<EOF
+    if [ -n "${memory_error:-}" ]; then
+      post_reply "$(cat <<EOF
+I started a Cursor Cloud Agent, but it hasn’t produced a message yet.
+
+- Agent: ${agent_url:-"(no url provided)"}
+
+---
+
+Memory error: ${memory_error}
+EOF
+)"
+    else
+      post_reply "$(cat <<EOF
 I started a Cursor Cloud Agent, but it hasn’t produced a message yet.
 
 - Agent: ${agent_url:-"(no url provided)"}
 EOF
 )"
+    fi
   else
-    post_reply "$reply_text"
-    memory_append "$mem_number" "$(cat <<EOF
+    if [ -n "${memory_error:-}" ]; then
+      post_reply "$(cat <<EOF
+${reply_text}
+
+---
+
+Memory error: ${memory_error}
+EOF
+)"
+    else
+      post_reply "$reply_text"
+    fi
+
+    if [[ "${mem_number:-}" =~ ^[0-9]+$ ]]; then
+      memory_append "$mem_number" "$(cat <<EOF
 **${GITHUB_ACTOR}**: ${PROMPT}
 
 **bigboss**: ${reply_text}
 EOF
 )"
+    fi
   fi
 fi
 

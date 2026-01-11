@@ -23,5 +23,5 @@ Examples:
 ## Safety
 
 - BigBoss must not merge or approve PRs unless explicitly asked.
-- If required secrets are missing, BigBoss must post a visible warning to the same thread (Issue/PR) or to the `BigBoss State` issue (label: `BOSSS`) on scheduled runs.
+- If required secrets are missing, BigBoss must post a visible warning to the same thread (Issue/PR) or to the single `BigBoss` issue (label: `BIGBOSS`) on scheduled runs.
 
