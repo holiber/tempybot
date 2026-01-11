@@ -38,7 +38,7 @@ function readEnvAny(names) {
 
 const apiKey = readEnvAny(["CURSOR_API_KEY", "CURSOR_CLOUD_API_KEY", "CURSORCLOUDAPIKEY"]);
 if (apiKey && apiKey.trim()) {
-  args.push("--headers", `Authorization:Bearer ${apiKey.trim()}`);
+  args.push("--headers", `Authorization: Bearer ${apiKey.trim()}`);
 }
 
 const child = spawn("npx", args, {

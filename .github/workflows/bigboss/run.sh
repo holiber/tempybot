@@ -754,7 +754,7 @@ NODE
 
 OpenAPI MCP schema checks are OK, but real Cursor Cloud API calls are skipped because no API key was provided.
 
-- **Fix**: set repo secret `CURSOR_CLOUD_API_KEY` (preferred) or `CURSOR_API_KEY`
+- **Fix**: set repo secret `CURSOR_CLOUD_API_KEY` (preferred) or `CURSOR_API_KEY` / `CURSORCLOUDAPIKEY`
 EOF
 )"
   fi

@@ -304,7 +304,7 @@ async function checkCursorCloudApi(): Promise<SelfCheckItem> {
     "--server-version",
     "0.1.0",
     "--headers",
-    `Authorization:Bearer ${apiKey}`,
+    `Authorization: Bearer ${apiKey}`,
   ];
 
   const client = new McpStdioClient(cmd, args);
