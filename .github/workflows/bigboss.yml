@@ -32,9 +32,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright (with deps)
-        run: npx playwright install --with-deps
-
       - name: Cache Cursor CLI (.cache/cursor-cli)
         uses: actions/cache@v4
         with:
