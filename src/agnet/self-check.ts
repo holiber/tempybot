@@ -4,6 +4,7 @@ import path from "node:path";
 import process from "node:process";
 
 import { executeGh } from "./cerebellum.ts";
+import { getCursorApiKeyFromEnv, readEnv } from "./env.ts";
 import { McpStdioClient, openApiMcpServerCommand } from "./mcp-stdio-client.ts";
 
 export type SelfCheckItem =
@@ -21,19 +22,6 @@ export type SelfCheckReport = {
   ok: boolean;
   checks: SelfCheckItem[];
 };
-
-function readEnv(name: string): string | undefined {
-  const v = process.env[name];
-  return v && v.trim() ? v.trim() : undefined;
-}
-
-function readEnvAny(names: string[]): string | undefined {
-  for (const name of names) {
-    const v = readEnv(name);
-    if (v) return v;
-  }
-  return undefined;
-}
 
 function isRequireCursorCli(): boolean {
   return readEnv("AGNET_SELF_CHECK_REQUIRE_CURSOR_CLI") === "1";
@@ -266,7 +254,7 @@ async function checkNodeScriptTool(args: {
 }
 
 async function checkCursorCloudApi(): Promise<SelfCheckItem> {
-  const apiKey = readEnvAny(["CURSOR_API_KEY", "CURSOR_CLOUD_API_KEY", "CURSORCLOUDAPIKEY"]);
+  const apiKey = getCursorApiKeyFromEnv();
   const require = isRequireCursorApi();
   if (!apiKey) {
     if (!require) {

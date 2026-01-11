@@ -14,7 +14,7 @@ redact_secrets() {
   # Best-effort redaction for logs. Never print secrets verbatim.
   local s="${1:-}"
   local v
-  for v in "${CURSOR_API_KEY:-}" "${CURSOR_CLOUD_API_KEY:-}" "${CURSORCLOUDAPIKEY:-}" "${GH_TOKEN:-}"; do
+  for v in "${CURSOR_API_KEY:-}" "${CURSOR_CLOUD_API_KEY:-}" "${CURSORCLOUDAPIKEY:-}" "${OPENAI_API_KEY:-}" "${OPENAI_KEY:-}" "${GH_TOKEN:-}"; do
     if [ -n "${v:-}" ]; then
       s="${s//$v/<redacted>}"
     fi
@@ -143,7 +143,7 @@ fi
 echo
 echo "== Secrets / env sanity =="
 echo "Expected env vars  : GH_TOKEN, CURSOR_CLOUD_API_KEY (preferred) / CURSOR_API_KEY / CURSORCLOUDAPIKEY"
-echo "Optional env vars  : BIGBOSS_MEMORY_LABEL, BIGBOSS_ISSUE_TITLE, BIGBOSS_RUN_SELF_CHECK"
+echo "Optional env vars  : OPENAI_API_KEY / OPENAI_KEY, BIGBOSS_MEMORY_LABEL, BIGBOSS_ISSUE_TITLE, BIGBOSS_RUN_SELF_CHECK"
 
 # Back-compat: allow multiple Cursor key env var names.
 if [ -z "${CURSOR_API_KEY:-}" ] && [ -n "${CURSOR_CLOUD_API_KEY:-}" ]; then
@@ -151,6 +151,9 @@ if [ -z "${CURSOR_API_KEY:-}" ] && [ -n "${CURSOR_CLOUD_API_KEY:-}" ]; then
 fi
 if [ -z "${CURSOR_API_KEY:-}" ] && [ -n "${CURSORCLOUDAPIKEY:-}" ]; then
   export CURSOR_API_KEY="${CURSORCLOUDAPIKEY}"
+fi
+if [ -z "${OPENAI_API_KEY:-}" ] && [ -n "${OPENAI_KEY:-}" ]; then
+  export OPENAI_API_KEY="${OPENAI_KEY}"
 fi
 
 missing=()
@@ -161,6 +164,14 @@ echo "GH_TOKEN set         : $([ -n "${GH_TOKEN:-}" ] && echo yes || echo no)"
 echo "CURSOR_API_KEY set   : $([ -n "${CURSOR_API_KEY:-}" ] && echo yes || echo no)"
 echo "CURSOR_CLOUD_API_KEY : $([ -n "${CURSOR_CLOUD_API_KEY:-}" ] && echo yes || echo no)"
 echo "CURSORCLOUDAPIKEY    : $([ -n "${CURSORCLOUDAPIKEY:-}" ] && echo yes || echo no)"
+echo "OPENAI_API_KEY set   : $([ -n "${OPENAI_API_KEY:-}" ] && echo yes || echo no)"
+echo "OPENAI_KEY set       : $([ -n "${OPENAI_KEY:-}" ] && echo yes || echo no)"
+
+if [ "${BIGBOSS_DRY_RUN:-}" = "1" ]; then
+  echo
+  echo "BIGBOSS_DRY_RUN=1: exiting after env sanity checks."
+  exit 0
+fi
 
 detect_notify_target() {
   node - <<'NODE'
