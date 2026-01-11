@@ -14,7 +14,7 @@ redact_secrets() {
   # Best-effort redaction for logs. Never print secrets verbatim.
   local s="${1:-}"
   local v
-  for v in "${CURSOR_API_KEY:-}" "${CURSOR_CLOUD_API_KEY:-}" "${GH_TOKEN:-}"; do
+  for v in "${CURSOR_API_KEY:-}" "${CURSOR_CLOUD_API_KEY:-}" "${CURSORCLOUDAPIKEY:-}" "${GH_TOKEN:-}"; do
     if [ -n "${v:-}" ]; then
       s="${s//$v/<redacted>}"
     fi
@@ -142,21 +142,25 @@ fi
 
 echo
 echo "== Secrets / env sanity =="
-echo "Expected env vars  : GH_TOKEN, CURSOR_CLOUD_API_KEY (preferred) / CURSOR_API_KEY"
+echo "Expected env vars  : GH_TOKEN, CURSOR_CLOUD_API_KEY (preferred) / CURSOR_API_KEY / CURSORCLOUDAPIKEY"
 echo "Optional env vars  : BIGBOSS_MEMORY_LABEL, BIGBOSS_ISSUE_TITLE, BIGBOSS_RUN_SELF_CHECK"
 
-# Back-compat: allow either CURSOR_CLOUD_API_KEY (preferred) or CURSOR_API_KEY (existing in this repo).
+# Back-compat: allow multiple Cursor key env var names.
 if [ -z "${CURSOR_API_KEY:-}" ] && [ -n "${CURSOR_CLOUD_API_KEY:-}" ]; then
   export CURSOR_API_KEY="${CURSOR_CLOUD_API_KEY}"
+fi
+if [ -z "${CURSOR_API_KEY:-}" ] && [ -n "${CURSORCLOUDAPIKEY:-}" ]; then
+  export CURSOR_API_KEY="${CURSORCLOUDAPIKEY}"
 fi
 
 missing=()
 if [ -z "${GH_TOKEN:-}" ]; then missing+=("GH_TOKEN (Actions token)"); fi
-if [ -z "${CURSOR_API_KEY:-}" ]; then missing+=("CURSOR_CLOUD_API_KEY (or CURSOR_API_KEY)"); fi
+if [ -z "${CURSOR_API_KEY:-}" ]; then missing+=("CURSOR_CLOUD_API_KEY (or CURSOR_API_KEY / CURSORCLOUDAPIKEY)"); fi
 
 echo "GH_TOKEN set         : $([ -n "${GH_TOKEN:-}" ] && echo yes || echo no)"
 echo "CURSOR_API_KEY set   : $([ -n "${CURSOR_API_KEY:-}" ] && echo yes || echo no)"
 echo "CURSOR_CLOUD_API_KEY : $([ -n "${CURSOR_CLOUD_API_KEY:-}" ] && echo yes || echo no)"
+echo "CURSORCLOUDAPIKEY    : $([ -n "${CURSORCLOUDAPIKEY:-}" ] && echo yes || echo no)"
 
 detect_notify_target() {
   node - <<'NODE'
@@ -519,7 +523,7 @@ I can run in **minimal mode**, but some capabilities are disabled until these ar
 $missing_lines
 
 Notes:
-- This repo’s OpenAPI MCP wrapper reads \`CURSOR_API_KEY\`. In Actions we also accept \`CURSOR_CLOUD_API_KEY\` and map it automatically.
+- This repo’s OpenAPI MCP wrapper reads \`CURSOR_API_KEY\`. In Actions we also accept \`CURSOR_CLOUD_API_KEY\` and \`CURSORCLOUDAPIKEY\` and map them automatically.
 - If you only want schema checks, secrets are optional; if you want real Cursor Cloud API calls, the Cursor key is required.
 EOF
 )"
@@ -809,7 +813,7 @@ EOF
   post_reply "Acknowledged — thinking…"
 
   if [ -z "${CURSOR_API_KEY:-}" ]; then
-    post_reply "Missing \`CURSOR_CLOUD_API_KEY\` (or \`CURSOR_API_KEY\`). I can’t answer via Cursor Cloud Agents until it’s set."
+    post_reply "Missing \`CURSOR_CLOUD_API_KEY\` (or \`CURSOR_API_KEY\` / \`CURSORCLOUDAPIKEY\`). I can’t answer via Cursor Cloud Agents until it’s set."
     exit 1
   fi
 
