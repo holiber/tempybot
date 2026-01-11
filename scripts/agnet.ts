@@ -1064,6 +1064,24 @@ async function cmdInteractive(opts: { mode: OutputMode }): Promise<number> {
       return;
     }
 
+    if (line === "/tool fa") {
+      // Minimal file-access demo: write and read a deterministic file.
+      const cwd = process.cwd();
+      const rel = ".agnet/fa-tool.txt";
+      const abs = path.join(cwd, ".agnet", "fa-tool.txt");
+      const content = "hello-from-fa";
+      await ensureDir(path.dirname(abs));
+      await fs.writeFile(abs, content, "utf8");
+      const readBack = (await fs.readFile(abs, "utf8")).trim();
+
+      await chat.append({ role: "tool", body: `fa_file:${rel}:${readBack}` });
+      const reply = `FA ok: wrote ${rel} and read "${readBack}"`;
+      await chat.append({ role: "agent", body: reply });
+      writeLine(reply);
+      rl.prompt();
+      return;
+    }
+
     // "Memory" path: recall last random from chat history.
     if (/\b(number|random)\b/i.test(line) && /\b(remember|recall|what|which)\b/i.test(line)) {
       const n = await lastRandomFromHistory();
