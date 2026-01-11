@@ -220,6 +220,14 @@ function readEnv(name: string): string | undefined {
   return v && v.trim() ? v.trim() : undefined;
 }
 
+function readCursorApiKey(): string | undefined {
+  return readEnv("CURSOR_API_KEY") ?? readEnv("CURSOR_CLOUD_API_KEY") ?? readEnv("CURSORCLOUDAPIKEY");
+}
+
+async function sleepMs(ms: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
 async function readJsonFile<T>(p: string): Promise<T> {
   const raw = await fs.readFile(p, "utf8");
   return JSON.parse(raw) as T;
@@ -732,23 +740,116 @@ async function cmdRun(opts: {
   }
 
   async function startCursorJob(cmd: SlashCommand): Promise<{ ok: true; jobId: string } | { ok: false; message: string }> {
-    const toolReq: CerebellumToolRequest = {
-      tool: "mcp",
-      method: "cursor.jobs.create",
-      args: { source: "agnet.ts", command: cmd.raw, repo: cmd.repo, issueNumber: cmd.issueNumber, commentId: cmd.commentId },
-      specPath: "fixtures/cursor.openapi.yml",
-    };
-    const exec = await cerebellum.executeTool(toolReq, { actor: { role: "agent" }, intention: "Start Cursor job for /myagent resolve", ctx });
-    if (!exec.result.ok) {
-      return { ok: false, message: exec.result.error.message };
+    const isFixtureMode = Boolean(readEnv("AGNET_MCP_FIXTURE_PATH"));
+
+    if (isFixtureMode) {
+      const toolReq: CerebellumToolRequest = {
+        tool: "mcp",
+        method: "cursor.jobs.create",
+        args: { source: "agnet.ts", command: cmd.raw, repo: cmd.repo, issueNumber: cmd.issueNumber, commentId: cmd.commentId },
+        specPath: "fixtures/cursor.openapi.yml",
+      };
+      const exec = await cerebellum.executeTool(toolReq, {
+        actor: { role: "agent" },
+        intention: "Start Cursor job for /myagent resolve",
+        ctx,
+      });
+      if (!exec.result.ok) {
+        return { ok: false, message: exec.result.error.message };
+      }
+
+      const parsed = parseJsonMaybe(exec.result.stdout) as any;
+      const jobId =
+        (typeof parsed?.result?.jobId === "string" && parsed.result.jobId.trim()) ||
+        (typeof parsed?.jobId === "string" && parsed.jobId.trim()) ||
+        "unknown";
+      return { ok: true, jobId };
     }
 
-    const parsed = parseJsonMaybe(exec.result.stdout) as any;
-    const jobId =
-      (typeof parsed?.result?.jobId === "string" && parsed.result.jobId.trim()) ||
-      (typeof parsed?.jobId === "string" && parsed.jobId.trim()) ||
-      "unknown";
-    return { ok: true, jobId };
+    const apiKey = readCursorApiKey();
+    if (!apiKey) {
+      return {
+        ok: false,
+        message: "Missing Cursor API key (set CURSOR_API_KEY / CURSOR_CLOUD_API_KEY / CURSORCLOUDAPIKEY).",
+      };
+    }
+
+    const repoUrl = cmd.repo.startsWith("http://") || cmd.repo.startsWith("https://") ? cmd.repo : `https://github.com/${cmd.repo}`;
+    const promptText = [
+      "You are a cloud coding agent.",
+      "",
+      `Task: ${cmd.raw}`,
+      `Context: GitHub comment ${cmd.url}`,
+      "",
+      "Reply with a short status update once you’ve started, or a short error if you cannot proceed.",
+    ].join("\n");
+
+    const createReq: CerebellumToolRequest = {
+      tool: "mcp",
+      method: "invoke-api-endpoint",
+      args: {
+        endpoint: "/v0/agents",
+        method: "POST",
+        params: {
+          body: {
+            prompt: { text: promptText },
+            source: { repository: repoUrl },
+            target: { autoCreatePr: false },
+          },
+        },
+      },
+      specPath: "src/agnet/cloud-agents-openapi.yaml",
+    };
+
+    const created = await cerebellum.executeTool(createReq, {
+      actor: { role: "agent" },
+      intention: "Create Cursor Cloud Agent for /myagent resolve",
+      ctx,
+    });
+    if (!created.result.ok) {
+      return { ok: false, message: created.result.error.message };
+    }
+
+    const parsed = parseJsonMaybe(created.result.stdout) as any;
+    const agentId = typeof parsed?.id === "string" && parsed.id.trim() ? parsed.id.trim() : "unknown";
+
+    // Best-effort: poll for the first assistant message (short timeout; degrade gracefully).
+    async function pollAssistantText(agentId: string): Promise<string | null> {
+      if (!agentId || agentId === "unknown") return null;
+      const attempts = Math.max(1, Number(readEnv("AGNET_CURSOR_POLL_ATTEMPTS") ?? "6") || 6);
+      const intervalMs = Math.max(250, Number(readEnv("AGNET_CURSOR_POLL_INTERVAL_MS") ?? "5000") || 5000);
+
+      for (let i = 0; i < attempts; i++) {
+        const convReq: CerebellumToolRequest = {
+          tool: "mcp",
+          method: "invoke-api-endpoint",
+          args: { endpoint: `/v0/agents/${agentId}/conversation`, method: "GET", params: {} },
+          specPath: "src/agnet/cloud-agents-openapi.yaml",
+        };
+        const conv = await cerebellum.executeTool(convReq, {
+          actor: { role: "agent" },
+          intention: "Fetch Cursor Cloud Agent conversation",
+          ctx,
+        });
+        if (conv.result.ok) {
+          const j = parseJsonMaybe(conv.result.stdout) as any;
+          const msgs = Array.isArray(j?.messages) ? j.messages : [];
+          const first = msgs.find(
+            (m: any) => m?.type === "assistant_message" && typeof m?.text === "string" && m.text.trim()
+          );
+          if (typeof first?.text === "string" && first.text.trim()) return first.text.trim();
+        }
+        await sleepMs(intervalMs);
+      }
+      return null;
+    }
+
+    const assistantText = await pollAssistantText(agentId);
+    if (assistantText) {
+      cerebellum.log(`Cursor agent replied (preview): ${assistantText.slice(0, 120)}${assistantText.length > 120 ? "…" : ""}`);
+    }
+
+    return { ok: true, jobId: agentId };
   }
 
   async function handleResolve(cmd: SlashCommand): Promise<number> {
@@ -781,7 +882,7 @@ async function cmdRun(opts: {
       "Final summary",
       "",
       `- Command: ${cmd.raw}`,
-      `- Cursor job: ${started.jobId}`,
+      `- Cursor: ${started.jobId}`,
       `- Source: ${cmd.url}`,
     ].join("\n");
     const summaryOk = await postIssueComment({

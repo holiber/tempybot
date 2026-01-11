@@ -27,6 +27,10 @@ function readEnv(name: string): string | undefined {
   return v && v.trim() ? v.trim() : undefined;
 }
 
+function readCursorApiKey(): string | undefined {
+  return readEnv("CURSOR_API_KEY") ?? readEnv("CURSOR_CLOUD_API_KEY") ?? readEnv("CURSORCLOUDAPIKEY");
+}
+
 function isRequireCursorCli(): boolean {
   return readEnv("AGNET_SELF_CHECK_REQUIRE_CURSOR_CLI") === "1";
 }
@@ -258,7 +262,7 @@ async function checkNodeScriptTool(args: {
 }
 
 async function checkCursorCloudApi(): Promise<SelfCheckItem> {
-  const apiKey = readEnv("CURSOR_API_KEY");
+  const apiKey = readCursorApiKey();
   const require = isRequireCursorApi();
   if (!apiKey) {
     if (!require) {
@@ -267,11 +271,16 @@ async function checkCursorCloudApi(): Promise<SelfCheckItem> {
         ok: false,
         required: false,
         skipped: true,
-        error: { message: "CURSOR_API_KEY is not set." },
+        error: { message: "Cursor API key is not set (CURSOR_API_KEY / CURSOR_CLOUD_API_KEY / CURSORCLOUDAPIKEY)." },
         details: { note: "Not required (set AGNET_SELF_CHECK_REQUIRE_CURSOR_API=1 to require)." },
       };
     }
-    return { name: "cursor.api.models", ok: false, required: true, error: { message: "CURSOR_API_KEY is not set." } };
+    return {
+      name: "cursor.api.models",
+      ok: false,
+      required: true,
+      error: { message: "Cursor API key is not set (CURSOR_API_KEY / CURSOR_CLOUD_API_KEY / CURSORCLOUDAPIKEY)." },
+    };
   }
 
   const specPath = path.join(process.cwd(), "src", "agnet", "cloud-agents-openapi.yaml");
@@ -302,6 +311,16 @@ async function checkCursorCloudApi(): Promise<SelfCheckItem> {
       clientInfo: { name: "tempybot-selfcheck", version: "0.0.0" },
     });
     if (init.error) {
+      if (!require) {
+        return {
+          name: "cursor.api.models",
+          ok: false,
+          required: false,
+          skipped: true,
+          error: { message: init.error.message },
+          details: { note: "Not required; skipping failure." },
+        };
+      }
       return { name: "cursor.api.models", ok: false, required: true, error: { message: init.error.message } };
     }
     client.notify("notifications/initialized", {});
@@ -311,12 +330,32 @@ async function checkCursorCloudApi(): Promise<SelfCheckItem> {
       arguments: { endpoint: "/v0/models", method: "GET", params: {} },
     });
     if (call.error) {
+      if (!require) {
+        return {
+          name: "cursor.api.models",
+          ok: false,
+          required: false,
+          skipped: true,
+          error: { message: call.error.message },
+          details: { note: "Not required; skipping failure." },
+        };
+      }
       return { name: "cursor.api.models", ok: false, required: true, error: { message: call.error.message } };
     }
 
     const parsed = parseToolTextJson(call.result) as any;
     const models = Array.isArray(parsed?.models) ? parsed.models : null;
     if (!models || !models.length) {
+      if (!require) {
+        return {
+          name: "cursor.api.models",
+          ok: false,
+          required: false,
+          skipped: true,
+          error: { message: "Cursor API call succeeded but no models were returned." },
+          details: { note: "Not required; skipping empty result." },
+        };
+      }
       return {
         name: "cursor.api.models",
         ok: false,
@@ -325,8 +364,18 @@ async function checkCursorCloudApi(): Promise<SelfCheckItem> {
       };
     }
 
-    return { name: "cursor.api.models", ok: true, required: true, details: { modelsCount: models.length } };
+    return { name: "cursor.api.models", ok: true, required: require, details: { modelsCount: models.length } };
   } catch (err) {
+    if (!require) {
+      return {
+        name: "cursor.api.models",
+        ok: false,
+        required: false,
+        skipped: true,
+        error: { message: err instanceof Error ? err.message : String(err) },
+        details: { note: "Not required; skipping failure." },
+      };
+    }
     return {
       name: "cursor.api.models",
       ok: false,

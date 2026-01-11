@@ -28,7 +28,7 @@ const args = [
   "0.1.0",
 ];
 
-const apiKey = process.env.CURSOR_API_KEY;
+const apiKey = process.env.CURSOR_API_KEY ?? process.env.CURSOR_CLOUD_API_KEY ?? process.env.CURSORCLOUDAPIKEY;
 if (apiKey && apiKey.trim()) {
   args.push("--headers", `Authorization:Bearer ${apiKey.trim()}`);
 }
