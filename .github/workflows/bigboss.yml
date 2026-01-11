@@ -147,14 +147,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          existing="$(gh pr list --head staging --base main --json number --limit 1 | node - <<'NODE'
-import fs from "node:fs";
-let raw = "";
-try { raw = fs.readFileSync(0, "utf8"); } catch {}
-let arr = [];
-try { arr = JSON.parse(raw || "[]"); } catch { arr = []; }
-process.stdout.write(String(Array.isArray(arr) ? arr.length : 0));
-NODE
+          raw="$(gh pr list --head staging --base main --json number --limit 1 2>/dev/null || echo '[]')"
+          existing="$(python3 - <<'PY' "$raw"
+import json, sys
+raw = sys.argv[1] if len(sys.argv) > 1 else "[]"
+try:
+    arr = json.loads(raw)
+except Exception:
+    arr = []
+print(len(arr) if isinstance(arr, list) else 0)
+PY
 )"
           if [ "${existing:-0}" != "0" ]; then
             exit 0

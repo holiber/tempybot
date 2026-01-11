@@ -684,7 +684,7 @@ EOF
 
   if [ -z "${CURSOR_API_KEY:-}" ]; then
     post_reply "Missing \`CURSOR_CLOUD_API_KEY\` (or \`CURSOR_API_KEY\`). I can’t answer via Cursor Cloud Agents until it’s set."
-    exit 1
+    exit 0
   fi
 
   set +e
@@ -694,7 +694,7 @@ EOF
 
   if [ $curl_status -ne 0 ] || [ -z "${created_json:-}" ]; then
     post_reply "Failed to create Cursor Cloud Agent (check that \`CURSOR_CLOUD_API_KEY\` is valid and the API is reachable)."
-    exit 1
+    exit 0
   fi
 
   agent_meta="$(printf "%s" "$created_json" | cursor_extract_agent_meta)"
@@ -703,7 +703,7 @@ EOF
 
   if [ -z "${agent_id:-}" ]; then
     post_reply "Cursor agent was created, but I couldn’t read its id from the response."
-    exit 1
+    exit 0
   fi
 
   # Poll for an assistant message.
