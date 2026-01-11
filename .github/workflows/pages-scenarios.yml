@@ -90,9 +90,11 @@ jobs:
 
           SITE_DIR="docs/generated/gh-pages"
           SCENARIOS_DIR="$SITE_DIR/scenarios"
+          STACKBLITZ_DIR="$SITE_DIR/stackblitz-webcontainer"
 
           rm -rf "$SITE_DIR"
           mkdir -p "$SCENARIOS_DIR/videos"
+          mkdir -p "$STACKBLITZ_DIR"
 
           if [ -d "artifacts/user-style-e2e" ]; then
             cp -R "artifacts/user-style-e2e" "$SCENARIOS_DIR/videos/"
@@ -114,7 +116,53 @@ jobs:
             <body>
               <h1>Project Pages</h1>
               <p><a href="./scenarios/">Scenario videos</a></p>
+              <p><a href="./stackblitz-webcontainer/">StackBlitz WebContainer demos</a></p>
               <p class="meta">User-like scenario test videos generated from merges to <code>main</code>.</p>
+            </body>
+          </html>
+          HTML
+
+          # StackBlitz demo links (static page, generated at build time).
+          # NOTE: Use GITHUB_REPOSITORY so forks point to their own repo by default.
+          STACKBLITZ_REPO="${GITHUB_REPOSITORY:-holiber/tempybot}"
+          STACKBLITZ_REF="main"
+          STACKBLITZ_SIMPLE_URL="https://stackblitz.com/github/${STACKBLITZ_REPO}/tree/${STACKBLITZ_REF}/demos/stackblitz-webcontainer/simple"
+          STACKBLITZ_CLI_URL="https://stackblitz.com/github/${STACKBLITZ_REPO}/tree/${STACKBLITZ_REF}/demos/stackblitz-webcontainer/tempybot-cli"
+
+          cat > "$STACKBLITZ_DIR/index.html" <<HTML
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <title>StackBlitz WebContainer demos</title>
+              <style>
+                body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding: 24px; }
+                a { font-weight: 600; }
+                .meta { color: #666; margin: 8px 0 24px; }
+                .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin: 12px 0; }
+                code { background: #f6f8fa; padding: 2px 6px; border-radius: 6px; }
+              </style>
+            </head>
+            <body>
+              <h1>StackBlitz WebContainer demos</h1>
+              <div class="meta">
+                These demos run entirely in the browser using StackBlitz WebContainers.
+              </div>
+
+              <div class="card">
+                <div><a href="${STACKBLITZ_SIMPLE_URL}">Simple WebContainer demo</a></div>
+                <div class="meta"><code>demos/stackblitz-webcontainer/simple</code></div>
+              </div>
+
+              <div class="card">
+                <div><a href="${STACKBLITZ_CLI_URL}">Run tempybot CLI (parse) in a WebContainer</a></div>
+                <div class="meta"><code>demos/stackblitz-webcontainer/tempybot-cli</code></div>
+              </div>
+
+              <p class="meta">
+                Repo: <code>${STACKBLITZ_REPO}</code> • Ref: <code>${STACKBLITZ_REF}</code>
+              </p>
             </body>
           </html>
           HTML
@@ -139,6 +187,7 @@ jobs:
             <body>
               <h1>Scenarios — Userlike Videos</h1>
               <div class="meta">This page lists user-like scenario videos generated from the latest merge to <code>main</code>.</div>
+              <div class="meta"><a href="../stackblitz-webcontainer/">StackBlitz WebContainer demos</a></div>
 
               <div class="section">
                 <h2>Web scenarios</h2>
