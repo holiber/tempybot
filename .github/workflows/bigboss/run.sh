@@ -59,6 +59,19 @@ NODE
 
 SENDER_ASSOC="$(read_sender_assoc)"
 
+read_dispatch_prompt() {
+  node - <<'NODE'
+import fs from "node:fs";
+const p = process.env.GITHUB_EVENT_PATH;
+let prompt = "";
+try {
+  const data = JSON.parse(fs.readFileSync(p, "utf8"));
+  prompt = String(data?.inputs?.prompt ?? "");
+} catch {}
+process.stdout.write(prompt.replace(/\r\n/g, "\n"));
+NODE
+}
+
 is_allowed_summoner() {
   # Only maintainers can summon (OWNER/MEMBER/COLLABORATOR).
   # For discussion comments, author_association should still be present.
@@ -482,6 +495,10 @@ EOF
 fi
 
 PROMPT="$(extract_prompt || true)"
+
+if [ -z "${PROMPT:-}" ] && [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
+  PROMPT="$(read_dispatch_prompt || true)"
+fi
 
 if [ -z "${PROMPT:-}" ] && [ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ]; then
   # Mention without any prompt text; do not spam.
