@@ -14,6 +14,11 @@ on:
         description: "Prompt text (like after @bigboss)"
         required: true
         type: string
+      run_self_check:
+        description: "Run BigBoss self-checks (Cursor CLI/MCP/GH) before responding"
+        required: false
+        type: boolean
+        default: false
       notify_issue_number:
         description: "Issue/PR number where Bigboss should post its reply (issues API)"
         required: false
@@ -114,12 +119,14 @@ jobs:
 
       - name: Cache Cursor CLI (.cache/cursor-cli)
         uses: actions/cache@v4
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_self_check == true }}
         with:
           path: .cache/cursor-cli
           key: cursor-cli-${{ runner.os }}-v1
 
       - name: Install Cursor CLI (non-global)
         shell: bash
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_self_check == true }}
         run: |
           set -euo pipefail
           bash scripts/install-cursor-cli.sh
@@ -131,6 +138,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
           CURSOR_CLOUD_API_KEY: ${{ secrets.CURSOR_CLOUD_API_KEY }}
+          BIGBOSS_RUN_SELF_CHECK: ${{ github.event_name == 'workflow_dispatch' && inputs.run_self_check && '1' || '0' }}
           BIGBOSS_MEMORY_LABEL: BIGBOSS
           BIGBOSS_ISSUE_TITLE: BigBoss
           BIGBOSS_NOTIFY_KIND: issue
