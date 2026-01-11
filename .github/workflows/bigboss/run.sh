@@ -238,11 +238,129 @@ if (existing?.number) process.stdout.write(String(existing.number));
 NODE
 }
 
+issue_has_label() {
+  local issue_number="$1"
+  local label="$2"
+  gh api "repos/${GITHUB_REPOSITORY}/issues/${issue_number}" 2>/dev/null | node - <<'NODE' "$label"
+const raw = require("node:fs").readFileSync(0, "utf8");
+const label = process.argv[1] ?? "";
+let j = {};
+try { j = JSON.parse(raw); } catch {}
+const labels = Array.isArray(j?.labels) ? j.labels : [];
+const ok = labels.some((l) => (l?.name ?? "") === label);
+process.stdout.write(ok ? "1" : "0");
+NODE
+}
+
+issue_set_title() {
+  local issue_number="$1"
+  local title="$2"
+  gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/${issue_number}" -f title="$title" >/dev/null 2>&1 || true
+}
+
+issue_remove_label_if_present() {
+  local issue_number="$1"
+  local label="$2"
+  gh api -X DELETE "repos/${GITHUB_REPOSITORY}/issues/${issue_number}/labels/${label}" >/dev/null 2>&1 || true
+}
+
+issue_add_label() {
+  local issue_number="$1"
+  local label="$2"
+  gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${issue_number}/labels" -f "labels[]=${label}" >/dev/null 2>&1 || true
+}
+
+normalize_bigboss_reserved_issue() {
+  # Goal:
+  # - keep exactly one reserved issue for BigBoss
+  # - ensure it has title "BigBoss" and label BIGBOSS
+  # - remove BIGBOSS/BOSSS labels from any extra issues (so they’re not “reserved” anymore)
+  local title
+  title="$(bigboss_issue_title)"
+  local label
+  label="$(bigboss_label)"
+  local legacy_label="BOSSS"
+  local canonical_title="BigBoss"
+
+  # If someone configured a different title, we still normalize duplicates by label,
+  # but the canonical reserved thread name should remain stable for humans.
+  if [ -n "${title:-}" ]; then
+    canonical_title="$title"
+  fi
+
+  local primary=""
+
+  # Prefer exact match on the new label + canonical title.
+  primary="$(find_issue_number_by_label_and_title "$label" "$canonical_title")"
+
+  # If not found, try to adopt one of the legacy titles under new label.
+  if ! [[ "${primary:-}" =~ ^[0-9]+$ ]]; then
+    primary="$(find_issue_number_by_label_and_title "$label" "BigBoss Memory")"
+  fi
+  if ! [[ "${primary:-}" =~ ^[0-9]+$ ]]; then
+    primary="$(find_issue_number_by_label_and_title "$label" "BigBoss State")"
+  fi
+
+  # If still not found, try legacy label + any of the known titles.
+  if ! [[ "${primary:-}" =~ ^[0-9]+$ ]]; then
+    primary="$(find_issue_number_by_label_and_title "$legacy_label" "$canonical_title")"
+  fi
+  if ! [[ "${primary:-}" =~ ^[0-9]+$ ]]; then
+    primary="$(find_issue_number_by_label_and_title "$legacy_label" "BigBoss Memory")"
+  fi
+  if ! [[ "${primary:-}" =~ ^[0-9]+$ ]]; then
+    primary="$(find_issue_number_by_label_and_title "$legacy_label" "BigBoss State")"
+  fi
+
+  if ! [[ "${primary:-}" =~ ^[0-9]+$ ]]; then
+    # Nothing to normalize yet.
+    return 0
+  fi
+
+  ensure_label_exists "$label"
+
+  # Make the primary the canonical reserved issue.
+  issue_set_title "$primary" "$canonical_title"
+  issue_add_label "$primary" "$label"
+  issue_remove_label_if_present "$primary" "$legacy_label"
+
+  # Remove reserved labels from any other issues so only one remains “reserved”.
+  # This is best-effort; if listing fails, we simply won't de-label extras.
+  for lbl in "$label" "$legacy_label"; do
+    raw="$(gh api "repos/${GITHUB_REPOSITORY}/issues" -F state=all -F per_page=100 -F labels="$lbl" 2>/dev/null || true)"
+    if [ -z "${raw:-}" ]; then
+      continue
+    fi
+
+    extras="$(node - <<'NODE' "$raw" "$primary"
+const raw = process.argv[1] ?? "[]";
+const primary = String(process.argv[2] ?? "");
+let arr = [];
+try { arr = JSON.parse(raw); } catch {}
+if (!Array.isArray(arr)) process.exit(0);
+const out = arr
+  .filter((x) => !x?.pull_request)
+  .map((x) => String(x?.number ?? ""))
+  .filter((n) => n && n !== primary);
+process.stdout.write(out.join(" "));
+NODE
+)"
+
+    for n in ${extras:-}; do
+      issue_remove_label_if_present "$n" "$label"
+      issue_remove_label_if_present "$n" "$legacy_label"
+    done
+  done
+}
+
 ensure_bigboss_issue_number() {
   local title="$1"
   local label
   label="$(bigboss_label)"
   local legacy_label="BOSSS"
+
+  # Before selecting/creating, normalize duplicates (best-effort).
+  normalize_bigboss_reserved_issue || true
 
   local n
   n="$(find_issue_number_by_label_and_title "$label" "$title")"
@@ -259,6 +377,8 @@ ensure_bigboss_issue_number() {
       ensure_label_exists "$label"
       gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${legacy}/labels" -f "labels[]=${label}" >/dev/null 2>&1 || true
       gh api -X DELETE "repos/${GITHUB_REPOSITORY}/issues/${legacy}/labels/${legacy_label}" >/dev/null 2>&1 || true
+      # Align title to the configured canonical title (best-effort).
+      issue_set_title "$legacy" "$title"
       echo "$legacy"
       return 0
     fi
