@@ -4,6 +4,7 @@
 
 - **Project Pages**: [holiber.github.io/tempybot](https://holiber.github.io/tempybot/)
 - **Scenario videos**: [holiber.github.io/tempybot/scenarios](https://holiber.github.io/tempybot/scenarios/)
+- **StackBlitz WebContainer demos**: [holiber.github.io/tempybot/stackblitz-webcontainer](https://holiber.github.io/tempybot/stackblitz-webcontainer/)
 
 ## Usage examples
 
