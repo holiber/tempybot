@@ -14,7 +14,7 @@ redact_secrets() {
   # Best-effort redaction for logs. Never print secrets verbatim.
   local s="${1:-}"
   local v
-  for v in "${CURSOR_API_KEY:-}" "${CURSOR_CLOUD_API_KEY:-}" "${GH_TOKEN:-}"; do
+  for v in "${CURSOR_API_KEY:-}" "${CURSOR_CLOUD_API_KEY:-}" "${CURSORCLOUDAPIKEY:-}" "${OPENAI_API_KEY:-}" "${OPENAI_KEY:-}" "${GH_TOKEN:-}"; do
     if [ -n "${v:-}" ]; then
       s="${s//$v/<redacted>}"
     fi
@@ -142,21 +142,35 @@ fi
 
 echo
 echo "== Secrets / env sanity =="
-echo "Expected env vars  : GH_TOKEN, CURSOR_CLOUD_API_KEY (preferred) / CURSOR_API_KEY"
-echo "Optional env vars  : BIGBOSS_MEMORY_LABEL, BIGBOSS_ISSUE_TITLE, BIGBOSS_RUN_SELF_CHECK"
+echo "Expected env vars  : GH_TOKEN, CURSOR_CLOUD_API_KEY / CURSOR_API_KEY / CURSORCLOUDAPIKEY"
+echo "Optional env vars  : OPENAI_API_KEY / OPENAI_KEY, BIGBOSS_MEMORY_LABEL, BIGBOSS_ISSUE_TITLE, BIGBOSS_RUN_SELF_CHECK"
 
-# Back-compat: allow either CURSOR_CLOUD_API_KEY (preferred) or CURSOR_API_KEY (existing in this repo).
+# Back-compat: allow multiple Cursor key naming conventions.
 if [ -z "${CURSOR_API_KEY:-}" ] && [ -n "${CURSOR_CLOUD_API_KEY:-}" ]; then
   export CURSOR_API_KEY="${CURSOR_CLOUD_API_KEY}"
+fi
+if [ -z "${CURSOR_API_KEY:-}" ] && [ -n "${CURSORCLOUDAPIKEY:-}" ]; then
+  export CURSOR_API_KEY="${CURSORCLOUDAPIKEY}"
+fi
+
+# Back-compat: allow multiple OpenAI key naming conventions.
+if [ -z "${OPENAI_API_KEY:-}" ] && [ -n "${OPENAI_KEY:-}" ]; then
+  export OPENAI_API_KEY="${OPENAI_KEY}"
 fi
 
 missing=()
 if [ -z "${GH_TOKEN:-}" ]; then missing+=("GH_TOKEN (Actions token)"); fi
-if [ -z "${CURSOR_API_KEY:-}" ]; then missing+=("CURSOR_CLOUD_API_KEY (or CURSOR_API_KEY)"); fi
+# Now we check for either Cursor OR OpenAI - at least one must be present
+if [ -z "${CURSOR_API_KEY:-}" ] && [ -z "${OPENAI_API_KEY:-}" ]; then
+  missing+=("CURSOR_CLOUD_API_KEY or OPENAI_API_KEY (at least one required)")
+fi
 
 echo "GH_TOKEN set         : $([ -n "${GH_TOKEN:-}" ] && echo yes || echo no)"
 echo "CURSOR_API_KEY set   : $([ -n "${CURSOR_API_KEY:-}" ] && echo yes || echo no)"
 echo "CURSOR_CLOUD_API_KEY : $([ -n "${CURSOR_CLOUD_API_KEY:-}" ] && echo yes || echo no)"
+echo "CURSORCLOUDAPIKEY    : $([ -n "${CURSORCLOUDAPIKEY:-}" ] && echo yes || echo no)"
+echo "OPENAI_API_KEY set   : $([ -n "${OPENAI_API_KEY:-}" ] && echo yes || echo no)"
+echo "OPENAI_KEY set       : $([ -n "${OPENAI_KEY:-}" ] && echo yes || echo no)"
 
 detect_notify_target() {
   node - <<'NODE'
@@ -318,7 +332,7 @@ normalize_bigboss_reserved_issue() {
   # Goal:
   # - keep exactly one reserved issue for BigBoss
   # - ensure it has title "BigBoss" and label BIGBOSS
-  # - remove BIGBOSS/BOSSS labels from any extra issues (so they’re not “reserved” anymore)
+  # - remove BIGBOSS/BOSSS labels from any extra issues (so they're not "reserved" anymore)
   local title
   title="$(bigboss_issue_title)"
   local label
@@ -368,7 +382,7 @@ normalize_bigboss_reserved_issue() {
   issue_add_label "$primary" "$label"
   issue_remove_label_if_present "$primary" "$legacy_label"
 
-  # Remove reserved labels from any other issues so only one remains “reserved”.
+  # Remove reserved labels from any other issues so only one remains "reserved".
   # This is best-effort; if listing fails, we simply won't de-label extras.
   for lbl in "$label" "$legacy_label"; do
     raw="$(gh_api_json "repos/${GITHUB_REPOSITORY}/issues" -F state=all -F per_page=100 -F labels="$lbl" || true)"
@@ -519,8 +533,9 @@ I can run in **minimal mode**, but some capabilities are disabled until these ar
 $missing_lines
 
 Notes:
-- This repo’s OpenAPI MCP wrapper reads \`CURSOR_API_KEY\`. In Actions we also accept \`CURSOR_CLOUD_API_KEY\` and map it automatically.
-- If you only want schema checks, secrets are optional; if you want real Cursor Cloud API calls, the Cursor key is required.
+- This repo's OpenAPI MCP wrapper reads \`CURSOR_API_KEY\`. In Actions we also accept \`CURSOR_CLOUD_API_KEY\` and \`CURSORCLOUDAPIKEY\` and map them automatically.
+- OpenAI API key can be set as \`OPENAI_API_KEY\` or \`OPENAI_KEY\`.
+- At least one AI API key (Cursor or OpenAI) is required for BigBoss to respond.
 EOF
 )"
   # Interpret "\n" sequences we added in missing_lines.
@@ -706,6 +721,108 @@ process.stdout.write(JSON.stringify({ id, url }));
 NODE
 }
 
+# ============================================================================
+# OpenAI Chat Completions API (using pure curl, no external libraries)
+# ============================================================================
+
+OPENAI_LAST_HTTP_CODE=""
+OPENAI_LAST_CURL_EXIT=0
+OPENAI_LAST_BODY_REDACTED_TRUNC=""
+
+openai_chat_completions() {
+  # Call OpenAI Chat Completions API directly with curl.
+  # Args: prompt_text [model]
+  local prompt_text="$1"
+  local model="${2:-gpt-4o}"
+
+  local payload
+  payload="$(node - <<'NODE' "$prompt_text" "$model"
+const prompt = process.argv[2] ?? "";
+const model = process.argv[3] ?? "gpt-4o";
+const out = {
+  model: model,
+  messages: [
+    { role: "system", content: "You are BigBoss, a helpful AI assistant for GitHub repositories. Be concise and direct in your responses." },
+    { role: "user", content: prompt }
+  ],
+  max_tokens: 2048,
+  temperature: 0.7
+};
+process.stdout.write(JSON.stringify(out));
+NODE
+)"
+
+  openai_api_request POST "https://api.openai.com/v1/chat/completions" "$payload"
+}
+
+openai_api_request() {
+  local method="$1"
+  local url="$2"
+  local data="${3:-}"
+
+  local tmp_body tmp_headers
+  tmp_body="$(mktemp)"
+  tmp_headers="$(mktemp)"
+
+  local curl_args=(
+    -sS
+    -X "$method"
+    "$url"
+    -H "Authorization: Bearer ${OPENAI_API_KEY}"
+    -H "Content-Type: application/json"
+    -D "$tmp_headers"
+    -o "$tmp_body"
+  )
+  if [ -n "${data:-}" ]; then
+    curl_args+=(--data "$data")
+  fi
+
+  set +e
+  curl "${curl_args[@]}"
+  OPENAI_LAST_CURL_EXIT=$?
+  set -e
+
+  OPENAI_LAST_HTTP_CODE="$(awk 'BEGIN{code=""} /^HTTP\//{code=$2} END{print code}' "$tmp_headers" 2>/dev/null || true)"
+  local body
+  body="$(cat "$tmp_body" 2>/dev/null || true)"
+
+  rm -f "$tmp_body" "$tmp_headers" 2>/dev/null || true
+
+  # Success: HTTP 2xx and curl exit 0.
+  if [ "${OPENAI_LAST_CURL_EXIT:-1}" -eq 0 ] && [[ "${OPENAI_LAST_HTTP_CODE:-}" =~ ^2[0-9][0-9]$ ]]; then
+    printf "%s" "$body"
+    return 0
+  fi
+
+  local redacted
+  redacted="$(redact_secrets "$body")"
+  redacted="$(printf "%s" "$redacted" | head -c 4000)"
+  OPENAI_LAST_BODY_REDACTED_TRUNC="$redacted"
+
+  echo "ERROR: OpenAI API request failed: ${method} ${url}" >&2
+  echo "  curl_exit : ${OPENAI_LAST_CURL_EXIT:-unknown}" >&2
+  echo "  http_code : ${OPENAI_LAST_HTTP_CODE:-unknown}" >&2
+  if [ -n "${redacted:-}" ]; then
+    echo "  body (truncated):" >&2
+    printf "%s\n" "$redacted" >&2
+  fi
+  return 1
+}
+
+openai_extract_response() {
+  # Extract the assistant's message from OpenAI chat completions response.
+  node - <<'NODE'
+import fs from "node:fs";
+const raw = fs.readFileSync(0, "utf8");
+let j = {};
+try { j = JSON.parse(raw); } catch { process.exit(0); }
+const choices = Array.isArray(j?.choices) ? j.choices : [];
+const first = choices[0];
+const content = first?.message?.content ?? "";
+process.stdout.write(String(content).trim());
+NODE
+}
+
 echo
 echo "== Self-checks (Cursor CLI, GH, MCP OpenAPI) =="
 
@@ -808,75 +925,88 @@ EOF
 
   post_reply "Acknowledged — thinking…"
 
-  if [ -z "${CURSOR_API_KEY:-}" ]; then
-    post_reply "Missing \`CURSOR_CLOUD_API_KEY\` (or \`CURSOR_API_KEY\`). I can’t answer via Cursor Cloud Agents until it’s set."
+  # Check we have at least one API key
+  if [ -z "${OPENAI_API_KEY:-}" ] && [ -z "${CURSOR_API_KEY:-}" ]; then
+    post_reply "Missing API keys. Set \`OPENAI_API_KEY\` (or \`OPENAI_KEY\`) or \`CURSOR_CLOUD_API_KEY\` (or \`CURSORCLOUDAPIKEY\`)."
     exit 1
   fi
 
-  repo_url="https://github.com/${GITHUB_REPOSITORY}"
-  if ! created_json="$(cursor_api_create_agent "$full_prompt" "$repo_url")"; then
-    # Fallback: repo access can be misconfigured for the key. Retry without repository context.
-    if ! created_json="$(cursor_api_create_agent "$full_prompt" "")"; then
-    post_reply "$(cat <<EOF
-Failed to create Cursor Cloud Agent.
-
-- Cursor API HTTP: ${CURSOR_LAST_HTTP_CODE:-unknown}
-- curl exit       : ${CURSOR_LAST_CURL_EXIT:-unknown}
-
-API error (truncated):
-${CURSOR_LAST_BODY_REDACTED_TRUNC:-"(empty)"}
-EOF
-)"
-    exit 1
-  fi
-  fi
-
-  agent_meta="$(printf "%s" "$created_json" | cursor_extract_agent_meta)"
-  agent_id="$(node -p 'JSON.parse(process.argv[1]).id' "$agent_meta" 2>/dev/null || true)"
-  agent_url="$(node -p 'JSON.parse(process.argv[1]).url' "$agent_meta" 2>/dev/null || true)"
-
-  if [ -z "${agent_id:-}" ]; then
-    post_reply "Cursor agent was created, but I couldn’t read its id from the response."
-    exit 1
-  fi
-
-  # Poll for an assistant message.
   reply_text=""
-  for i in $(seq 1 24); do
-    if conv_json="$(cursor_api_get_conversation "$agent_id")"; then
-      reply_text="$(printf "%s" "$conv_json" | cursor_extract_first_assistant_message)"
+  api_used=""
+
+  # Strategy: Try OpenAI first (faster for simple Q&A), fall back to Cursor Cloud for complex tasks
+  if [ -n "${OPENAI_API_KEY:-}" ]; then
+    echo "Trying OpenAI Chat Completions API..."
+    if openai_response="$(openai_chat_completions "$full_prompt")"; then
+      reply_text="$(printf "%s" "$openai_response" | openai_extract_response)"
       if [ -n "${reply_text:-}" ]; then
-        break
+        api_used="openai"
+        echo "OpenAI responded successfully."
+      else
+        echo "WARN: OpenAI returned empty response, will try Cursor Cloud..." >&2
       fi
     else
-      echo "WARN: failed to poll Cursor agent conversation (attempt $i/24)." >&2
+      echo "WARN: OpenAI API call failed, will try Cursor Cloud if available..." >&2
     fi
-    sleep 5
-  done
+  fi
 
+  # Fall back to Cursor Cloud Agents if OpenAI didn't work or isn't available
+  if [ -z "${reply_text:-}" ] && [ -n "${CURSOR_API_KEY:-}" ]; then
+    echo "Trying Cursor Cloud Agents API..."
+    repo_url="https://github.com/${GITHUB_REPOSITORY}"
+    if ! created_json="$(cursor_api_create_agent "$full_prompt" "$repo_url")"; then
+      # Fallback: repo access can be misconfigured for the key. Retry without repository context.
+      created_json="$(cursor_api_create_agent "$full_prompt" "")" || true
+    fi
+
+    if [ -n "${created_json:-}" ]; then
+      agent_meta="$(printf "%s" "$created_json" | cursor_extract_agent_meta)"
+      agent_id="$(node -p 'JSON.parse(process.argv[1]).id' "$agent_meta" 2>/dev/null || true)"
+      agent_url="$(node -p 'JSON.parse(process.argv[1]).url' "$agent_meta" 2>/dev/null || true)"
+
+      if [ -n "${agent_id:-}" ]; then
+        # Poll for an assistant message.
+        for i in $(seq 1 24); do
+          if conv_json="$(cursor_api_get_conversation "$agent_id")"; then
+            reply_text="$(printf "%s" "$conv_json" | cursor_extract_first_assistant_message)"
+            if [ -n "${reply_text:-}" ]; then
+              api_used="cursor"
+              break
+            fi
+          else
+            echo "WARN: failed to poll Cursor agent conversation (attempt $i/24)." >&2
+          fi
+          sleep 5
+        done
+
+        if [ -z "${reply_text:-}" ]; then
+          # Agent started but no message yet - report the agent URL
+          reply_text="I started a Cursor Cloud Agent, but it hasn't produced a message yet.
+
+- Agent: ${agent_url:-"(no url provided)"}"
+          api_used="cursor-pending"
+        fi
+      fi
+    fi
+  fi
+
+  # Report if all APIs failed
   if [ -z "${reply_text:-}" ]; then
-    if [ -n "${memory_error:-}" ]; then
-      post_reply "$(cat <<EOF
-I started a Cursor Cloud Agent, but it hasn’t produced a message yet.
+    post_reply "$(cat <<EOF
+Failed to get a response from any AI API.
 
-- Agent: ${agent_url:-"(no url provided)"}
+- OpenAI available: $([ -n "${OPENAI_API_KEY:-}" ] && echo "yes (HTTP: ${OPENAI_LAST_HTTP_CODE:-unknown})" || echo "no key")
+- Cursor available: $([ -n "${CURSOR_API_KEY:-}" ] && echo "yes (HTTP: ${CURSOR_LAST_HTTP_CODE:-unknown})" || echo "no key")
 
----
-
-Memory error: ${memory_error}
+Please check the workflow logs for details.
 EOF
 )"
-    else
-      post_reply "$(cat <<EOF
-I started a Cursor Cloud Agent, but it hasn’t produced a message yet.
+    exit 1
+  fi
 
-- Agent: ${agent_url:-"(no url provided)"}
-EOF
-)"
-    fi
-  else
-    if [ -n "${memory_error:-}" ]; then
-      post_reply "$(cat <<EOF
+  # Post the reply
+  if [ -n "${memory_error:-}" ]; then
+    post_reply "$(cat <<EOF
 ${reply_text}
 
 ---
@@ -884,21 +1014,20 @@ ${reply_text}
 Memory error: ${memory_error}
 EOF
 )"
-    else
-      post_reply "$reply_text"
-    fi
+  else
+    post_reply "$reply_text"
+  fi
 
-    if [[ "${mem_number:-}" =~ ^[0-9]+$ ]]; then
-      memory_append "$mem_number" "$(cat <<EOF
+  # Store in memory
+  if [[ "${mem_number:-}" =~ ^[0-9]+$ ]]; then
+    memory_append "$mem_number" "$(cat <<EOF
 **${GITHUB_ACTOR}**: ${PROMPT}
 
-**bigboss**: ${reply_text}
+**bigboss** (via ${api_used:-unknown}): ${reply_text}
 EOF
 )"
-    fi
   fi
 fi
 
 echo
-echo "== BigBoss done (minimal) =="
-
+echo "== BigBoss done =="

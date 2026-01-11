@@ -80,6 +80,11 @@ jobs:
       - name: Integration tests
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          # Cursor Cloud API (multiple naming conventions)
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY || secrets.CURSOR_CLOUD_API_KEY || secrets.CURSORCLOUDAPIKEY }}
+          CURSOR_CLOUD_API_KEY: ${{ secrets.CURSOR_CLOUD_API_KEY || secrets.CURSORCLOUDAPIKEY }}
+          # OpenAI API (multiple naming conventions)
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || secrets.OPENAI_KEY }}
+          OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
         run: npm run test:integration
 
