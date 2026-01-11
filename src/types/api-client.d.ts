@@ -19,7 +19,14 @@
  * - retries/backoff coordination with transport
  */
 
+import type { STC as ChannelSTC } from "./channel.js";
+import type { STC as CollectionSTC } from "./collection.js";
+
 export declare namespace STC {
+  // Cross-spec dependencies referenced by ApiClient.
+  export import Channel = ChannelSTC.Channel;
+  export import Collection = CollectionSTC.Collection;
+
   export namespace ApiClient {
     export type RequestId = string;
     export type ChannelId = string;

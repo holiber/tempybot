@@ -70,5 +70,20 @@ export declare namespace STC {
         options?: CreateOptions<M>
       ): Channel<T, M>;
     }
+
+    // ----------------------------
+    // Proposal (Tier2+)
+    // ----------------------------
+    export namespace Proposal {
+      /**
+       * Proposal: message size / bandwidth limits.
+       * Used by Transport.Proposal.Options.
+       */
+      export interface ThroughputLimits {
+        maxMessageBytes?: number;
+        maxBytesPerSecond?: number;
+        maxEventsPerSecond?: number;
+      }
+    }
   }
 }

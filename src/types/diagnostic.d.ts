@@ -15,7 +15,14 @@
  * - dev/prod mode is NOT stored in events; it may be used as config input to set defaults.
  */
 
+import type { STC as ChannelSTC } from "./channel.js";
+import type { STC as CollectionSTC } from "./collection.js";
+
 export declare namespace STC {
+  // Cross-spec dependencies referenced by Diagnostics.
+  export import Channel = ChannelSTC.Channel;
+  export import Collection = CollectionSTC.Collection;
+
   export namespace Diagnostics {
     /** Tier 1 levels aligned with Chrome console. */
     export type Level = "error" | "warn" | "info" | "log" | "debug";

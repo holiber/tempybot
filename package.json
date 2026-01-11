@@ -18,6 +18,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "build:stc": "node packages/stc/scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run test:unit && npm run test:e2e",
     "mcp:cursor-cloud-agents": "node scripts/mcp-cursor-cloud-agents.mjs",

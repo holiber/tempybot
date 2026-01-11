@@ -16,7 +16,14 @@
  * - integrations/adapters
  */
 
+import type { STC as ChannelSTC } from "./channel.js";
+import type { STC as CollectionSTC } from "./collection.js";
+
 export declare namespace STC {
+  // Cross-spec dependencies referenced by Chat.
+  export import Channel = ChannelSTC.Channel;
+  export import Collection = CollectionSTC.Collection;
+
   export namespace Chat {
     /** Generic meta container (required convention). */
     export type Meta<M extends Record<string, unknown> = Record<string, unknown>> = M;
