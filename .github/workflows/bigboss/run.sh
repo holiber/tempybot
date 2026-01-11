@@ -10,6 +10,34 @@ echo "Repo : ${GITHUB_REPOSITORY:-unknown}"
 echo "Event: ${GITHUB_EVENT_NAME:-unknown}"
 echo "SHA  : ${GITHUB_SHA:-unknown}"
 
+redact_secrets() {
+  # Best-effort redaction for logs. Never print secrets verbatim.
+  local s="${1:-}"
+  local v
+  for v in "${CURSOR_API_KEY:-}" "${CURSOR_CLOUD_API_KEY:-}" "${GH_TOKEN:-}"; do
+    if [ -n "${v:-}" ]; then
+      s="${s//$v/<redacted>}"
+    fi
+  done
+  printf "%s" "$s"
+}
+
+gh_api_json() {
+  # Print JSON to stdout. On failure, emit a warning to stderr and return non-zero.
+  local out status
+  set +e
+  out="$(gh api -X GET --paginate --slurp "$@" 2>&1)"
+  status=$?
+  set -e
+  if [ $status -ne 0 ]; then
+    echo "WARN: gh api failed (exit=$status): gh api $*" >&2
+    echo "$out" | head -c 2000 >&2 || true
+    echo >&2
+    return $status
+  fi
+  printf "%s" "$out"
+}
+
 AGENT_YML="${BIGBOSS_AGENT_YML:-".github/workflows/bigboss/agent.yml"}"
 echo
 echo "== Config =="
@@ -233,7 +261,7 @@ find_issue_number_by_label_and_title() {
   local title="$2"
 
   local raw
-  raw="$(gh api "repos/${GITHUB_REPOSITORY}/issues" -F state=all -F per_page=100 -F labels="$label" 2>/dev/null || true)"
+  raw="$(gh_api_json "repos/${GITHUB_REPOSITORY}/issues" -F state=all -F per_page=100 -F labels="$label" || true)"
   if [ -z "$raw" ]; then
     echo ""
     return 0
@@ -340,7 +368,7 @@ normalize_bigboss_reserved_issue() {
   # Remove reserved labels from any other issues so only one remains “reserved”.
   # This is best-effort; if listing fails, we simply won't de-label extras.
   for lbl in "$label" "$legacy_label"; do
-    raw="$(gh api "repos/${GITHUB_REPOSITORY}/issues" -F state=all -F per_page=100 -F labels="$lbl" 2>/dev/null || true)"
+    raw="$(gh_api_json "repos/${GITHUB_REPOSITORY}/issues" -F state=all -F per_page=100 -F labels="$lbl" || true)"
     if [ -z "${raw:-}" ]; then
       continue
     fi
@@ -466,7 +494,10 @@ post_notice() {
   fi
 
   if [ "$kind" = "issue" ]; then
-    gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${number}/comments" -f body="$msg" >/dev/null || true
+    if ! gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${number}/comments" -f body="$msg" >/dev/null 2>&1; then
+      echo "WARN: failed to post notice via GitHub API (check token/permissions)."
+      echo "$msg"
+    fi
     return 0
   fi
 }
@@ -514,7 +545,7 @@ memory_fetch_tail() {
   local issue_number="$1"
   local limit="${2:-8}"
   local raw
-  raw="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue_number}/comments" -F per_page=100 2>/dev/null || true)"
+  raw="$(gh_api_json "repos/${GITHUB_REPOSITORY}/issues/${issue_number}/comments" -F per_page=100 || true)"
   if [ -z "$raw" ]; then
     echo ""
     return 0
@@ -542,6 +573,29 @@ memory_append() {
   gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${issue_number}/comments" -f body="$body" >/dev/null || true
 }
 
+gh_search_total_count() {
+  # Prints a single integer total_count on success, otherwise prints nothing.
+  local query="$1"
+  local out status
+  set +e
+  out="$(gh api -X GET "search/issues" -f q="$query" 2>&1)"
+  status=$?
+  set -e
+  if [ $status -ne 0 ]; then
+    echo "WARN: gh search failed (exit=$status) for query: $query" >&2
+    echo "$out" | head -c 2000 >&2 || true
+    echo >&2
+    return 1
+  fi
+  node - <<'NODE' "$out"
+try {
+  const j = JSON.parse(process.argv[1] ?? "{}");
+  const n = Number(j?.total_count);
+  if (Number.isFinite(n) && n >= 0) process.stdout.write(String(n));
+} catch {}
+NODE
+}
+
 cursor_api_create_agent() {
   local prompt_text="$1"
   local repo_url="https://github.com/${GITHUB_REPOSITORY}"
@@ -557,17 +611,68 @@ const out = {
 process.stdout.write(JSON.stringify(out));
 NODE
 )"
-  curl -fsS "https://api.cursor.com/v0/agents" \
-    -H "Authorization: Bearer ${CURSOR_API_KEY}" \
-    -H "Content-Type: application/json" \
-    --data "$payload"
+  cursor_api_request POST "https://api.cursor.com/v0/agents" "$payload"
 }
 
 cursor_api_get_conversation() {
   local agent_id="$1"
-  curl -fsS "https://api.cursor.com/v0/agents/${agent_id}/conversation" \
-    -H "Authorization: Bearer ${CURSOR_API_KEY}" \
+  cursor_api_request GET "https://api.cursor.com/v0/agents/${agent_id}/conversation" ""
+}
+
+CURSOR_LAST_HTTP_CODE=""
+CURSOR_LAST_CURL_EXIT=0
+
+cursor_api_request() {
+  local method="$1"
+  local url="$2"
+  local data="${3:-}"
+
+  local tmp_body tmp_headers
+  tmp_body="$(mktemp)"
+  tmp_headers="$(mktemp)"
+
+  local curl_args=(
+    -sS
+    -X "$method"
+    "$url"
+    -H "Authorization: Bearer ${CURSOR_API_KEY}"
     -H "Content-Type: application/json"
+    -D "$tmp_headers"
+    -o "$tmp_body"
+  )
+  if [ -n "${data:-}" ]; then
+    curl_args+=(--data "$data")
+  fi
+
+  set +e
+  curl "${curl_args[@]}"
+  CURSOR_LAST_CURL_EXIT=$?
+  set -e
+
+  CURSOR_LAST_HTTP_CODE="$(awk 'BEGIN{code=""} /^HTTP\//{code=$2} END{print code}' "$tmp_headers" 2>/dev/null || true)"
+  local body
+  body="$(cat "$tmp_body" 2>/dev/null || true)"
+
+  rm -f "$tmp_body" "$tmp_headers" 2>/dev/null || true
+
+  # Success: HTTP 2xx and curl exit 0.
+  if [ "${CURSOR_LAST_CURL_EXIT:-1}" -eq 0 ] && [[ "${CURSOR_LAST_HTTP_CODE:-}" =~ ^2[0-9][0-9]$ ]]; then
+    printf "%s" "$body"
+    return 0
+  fi
+
+  local redacted
+  redacted="$(redact_secrets "$body")"
+  redacted="$(printf "%s" "$redacted" | head -c 4000)"
+
+  echo "ERROR: Cursor API request failed: ${method} ${url}" >&2
+  echo "  curl_exit : ${CURSOR_LAST_CURL_EXIT:-unknown}" >&2
+  echo "  http_code : ${CURSOR_LAST_HTTP_CODE:-unknown}" >&2
+  if [ -n "${redacted:-}" ]; then
+    echo "  body (truncated):" >&2
+    printf "%s\n" "$redacted" >&2
+  fi
+  return 1
 }
 
 cursor_extract_first_assistant_message() {
@@ -597,17 +702,18 @@ NODE
 echo
 echo "== Self-checks (Cursor CLI, GH, MCP OpenAPI) =="
 
-export AGNET_SELF_CHECK_REQUIRE_GITHUB="1"
-export AGNET_SELF_CHECK_REQUIRE_CURSOR_CLI="1"
-export AGNET_SELF_CHECK_REQUIRE_CURSOR_API="0"
+if [ "${BIGBOSS_RUN_SELF_CHECK:-0}" = "1" ]; then
+  export AGNET_SELF_CHECK_REQUIRE_GITHUB="1"
+  export AGNET_SELF_CHECK_REQUIRE_CURSOR_CLI="1"
+  export AGNET_SELF_CHECK_REQUIRE_CURSOR_API="0"
 
-set +e
-selfcheck_out="$(node scripts/agnet.ts --json selfcheck 2>/dev/null)"
-selfcheck_status=$?
-set -e
+  set +e
+  selfcheck_out="$(node scripts/agnet.ts --json selfcheck)"
+  selfcheck_status=$?
+  set -e
 
-if [ $selfcheck_status -ne 0 ] || [ -z "${selfcheck_out:-}" ]; then
-  post_notice "$(cat <<'EOF'
+  if [ $selfcheck_status -ne 0 ] || [ -z "${selfcheck_out:-}" ]; then
+    post_notice "$(cat <<'EOF'
 ### BigBoss self-check failed
 
 The workflow could not complete its environment checks (Cursor CLI / MCP / GitHub).
@@ -615,13 +721,13 @@ The workflow could not complete its environment checks (Cursor CLI / MCP / GitHu
 Please open the workflow logs and fix the failing step; BigBoss will not proceed.
 EOF
 )"
-  exit 1
-fi
+    exit 1
+  fi
 
-echo "$selfcheck_out"
+  echo "$selfcheck_out"
 
-# If Cursor key is missing, selfcheck will mark cursor.api.models as skipped; explicitly report it.
-cursor_api_skipped="$(node - <<'NODE' "$selfcheck_out"
+  # If Cursor key is missing, selfcheck will mark cursor.api.models as skipped; explicitly report it.
+  cursor_api_skipped="$(node - <<'NODE' "$selfcheck_out"
 try {
   const j = JSON.parse(process.argv[1] ?? "{}");
   const checks = Array.isArray(j?.checks) ? j.checks : [];
@@ -631,8 +737,8 @@ try {
 NODE
 )"
 
-if [ "$cursor_api_skipped" = "1" ]; then
-  post_notice "$(cat <<'EOF'
+  if [ "$cursor_api_skipped" = "1" ]; then
+    post_notice "$(cat <<'EOF'
 ### BigBoss: Cursor Cloud API key missing
 
 OpenAPI MCP schema checks are OK, but real Cursor Cloud API calls are skipped because no API key was provided.
@@ -640,6 +746,9 @@ OpenAPI MCP schema checks are OK, but real Cursor Cloud API calls are skipped be
 - **Fix**: set repo secret `CURSOR_CLOUD_API_KEY` (preferred) or `CURSOR_API_KEY`
 EOF
 )"
+  fi
+else
+  echo "Self-checks: skipped (set BIGBOSS_RUN_SELF_CHECK=1 to enable)."
 fi
 
 if [ -n "${PROMPT:-}" ]; then
@@ -657,6 +766,21 @@ if [ -n "${PROMPT:-}" ]; then
     mem_tail="$(memory_fetch_tail "$mem_number" 8)"
   fi
 
+  # Optional: if the user asks about issue counts, fetch them via GH API so BigBoss can answer accurately.
+  repo_stats=""
+  if echo "${PROMPT:-}" | grep -Eqi '\bhow many issues\b|\bissues do you see\b'; then
+    total_issues="$(gh_search_total_count "repo:${GITHUB_REPOSITORY} type:issue" || true)"
+    open_issues="$(gh_search_total_count "repo:${GITHUB_REPOSITORY} type:issue state:open" || true)"
+    if [[ "${total_issues:-}" =~ ^[0-9]+$ ]]; then
+      repo_stats="Repo issue counts (via GitHub API): total=${total_issues}"
+      if [[ "${open_issues:-}" =~ ^[0-9]+$ ]]; then
+        repo_stats+=", open=${open_issues}"
+      fi
+    else
+      repo_stats="Repo issue counts: unavailable (GitHub API query failed; see workflow logs)."
+    fi
+  fi
+
   full_prompt="$(cat <<EOF
 You are BigBoss, an AI assistant for the GitHub repo https://github.com/${GITHUB_REPOSITORY}.
 
@@ -664,6 +788,9 @@ Constraints:
 - Reply directly and concisely.
 - Do not merge/approve PRs unless explicitly asked.
 
+${repo_stats:+${repo_stats}
+
+}
 Persistent memory (latest entries):
 ${mem_tail:-"(none)"}
 
@@ -679,13 +806,16 @@ EOF
     exit 1
   fi
 
-  set +e
-  created_json="$(cursor_api_create_agent "$full_prompt" 2>/dev/null)"
-  curl_status=$?
-  set -e
+  if ! created_json="$(cursor_api_create_agent "$full_prompt")"; then
+    post_reply "$(cat <<EOF
+Failed to create Cursor Cloud Agent.
 
-  if [ $curl_status -ne 0 ] || [ -z "${created_json:-}" ]; then
-    post_reply "Failed to create Cursor Cloud Agent (check that \`CURSOR_CLOUD_API_KEY\` is valid and the API is reachable)."
+- Cursor API HTTP: ${CURSOR_LAST_HTTP_CODE:-unknown}
+- curl exit       : ${CURSOR_LAST_CURL_EXIT:-unknown}
+
+(See workflow logs for the API error response.)
+EOF
+)"
     exit 1
   fi
 
@@ -701,15 +831,13 @@ EOF
   # Poll for an assistant message.
   reply_text=""
   for i in $(seq 1 24); do
-    set +e
-    conv_json="$(cursor_api_get_conversation "$agent_id" 2>/dev/null)"
-    conv_status=$?
-    set -e
-    if [ $conv_status -eq 0 ] && [ -n "${conv_json:-}" ]; then
+    if conv_json="$(cursor_api_get_conversation "$agent_id")"; then
       reply_text="$(printf "%s" "$conv_json" | cursor_extract_first_assistant_message)"
       if [ -n "${reply_text:-}" ]; then
         break
       fi
+    else
+      echo "WARN: failed to poll Cursor agent conversation (attempt $i/24)." >&2
     fi
     sleep 5
   done

@@ -951,8 +951,8 @@ paths:
                     example:
                       [
                         'claude-4-sonnet-thinking',
-                        'o3',
-                        'claude-4-opus-thinking',
+                        'gpt-5.2',
+                        'claude-4.5-sonnet-thinking',
                       ]
         '401':
           description: Unauthorized - invalid or missing API key

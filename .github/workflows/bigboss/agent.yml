@@ -6,6 +6,7 @@ rules_glob: ".github/workflows/bigboss/rules/*.md"
 use_mcp:
   # This repo already includes an OpenAPI MCP server wrapper for Cursor Cloud Agents.
   # See: scripts/mcp-cursor-cloud-agents.mjs
+  # Enabled: BigBoss communicates with Cursor Cloud Agents via OpenAPI MCP.
   openapi: true
   # Keep BigBoss minimal to reduce CI cold-start time.
   playwright: false
