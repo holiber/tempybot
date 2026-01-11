@@ -1,4 +1,7 @@
-name: bigboss
+name: Bigboss
+
+run-name: >-
+  Bigboss — ${{ github.event_name }} #${{ github.event.issue.number || github.event.pull_request.number || github.run_number }}
 
 on:
   issue_comment:
@@ -6,6 +9,19 @@ on:
   pull_request_review_comment:
     types: [created]
   workflow_dispatch:
+    inputs:
+      prompt:
+        description: "Prompt text (like after @bigboss)"
+        required: true
+        type: string
+      notify_issue_number:
+        description: "Issue/PR number where Bigboss should post its reply (issues API)"
+        required: false
+        type: string
+      react_comment_url:
+        description: "Optional API URL of a comment to react 👀 to (issues or PR review comment API URL)"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -16,6 +32,72 @@ jobs:
   bigboss:
     runs-on: ubuntu-latest
     steps:
+      - name: React 👀 (pre-bot)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          endpoint="$(
+            python3 - <<'PY'
+          import json, os, re, sys
+
+          event = os.environ.get("GITHUB_EVENT_NAME", "")
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          path = os.environ.get("GITHUB_EVENT_PATH", "")
+          if not repo or not path:
+              sys.exit(0)
+
+          try:
+              data = json.load(open(path, "r", encoding="utf-8"))
+          except Exception:
+              sys.exit(0)
+
+          # workflow_dispatch test mode: accept an explicit API URL to react on.
+          if event == "workflow_dispatch":
+              inputs = data.get("inputs") if isinstance(data, dict) else {}
+              url = str((inputs or {}).get("react_comment_url") or "").strip()
+              if url:
+                  # Expect a GitHub API URL like:
+                  # - https://api.github.com/repos/<owner>/<repo>/issues/comments/<id>
+                  # - https://api.github.com/repos/<owner>/<repo>/pulls/comments/<id>
+                  # We'll convert it to a gh api endpoint and add /reactions.
+                  prefix = "https://api.github.com/"
+                  if url.startswith(prefix):
+                      url = url[len(prefix):]
+                  url = url.strip("/")
+                  if url:
+                      print(f"{url}/reactions")
+              sys.exit(0)
+
+          body = str(((data.get("comment") or {}).get("body")) or "")
+          assoc = str(((data.get("comment") or {}).get("author_association")) or "")
+
+          wake = (event == "workflow_dispatch") or re.search(r"(^|\s)(/bigboss|@bigboss|@bigbos)\b|/do\b", body, re.I)
+          allowed = (event == "workflow_dispatch") or (assoc in ("OWNER", "MEMBER", "COLLABORATOR"))
+
+          # Only react for comment-triggered, allowed summons.
+          if not wake or not allowed or event == "workflow_dispatch":
+              sys.exit(0)
+
+          cid = (data.get("comment") or {}).get("id")
+          if not cid:
+              sys.exit(0)
+
+          if event == "issue_comment":
+              print(f"repos/{repo}/issues/comments/{cid}/reactions")
+          elif event == "pull_request_review_comment":
+              print(f"repos/{repo}/pulls/comments/{cid}/reactions")
+          PY
+          )" || true
+
+          if [ -z "${endpoint:-}" ]; then
+            exit 0
+          fi
+
+          gh api -X POST "$endpoint" -f content=eyes >/dev/null 2>&1 || true
+
       - uses: actions/checkout@v4
 
       - name: Setup Node
@@ -49,9 +131,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
           CURSOR_CLOUD_API_KEY: ${{ secrets.CURSOR_CLOUD_API_KEY }}
-          BIGBOSS_MEMORY_LABEL: BOSSS
-          BIGBOSS_STATE_ISSUE_TITLE: BigBoss State
-          BIGBOSS_MEMORY_ISSUE_TITLE: BigBoss Memory
+          BIGBOSS_MEMORY_LABEL: BIGBOSS
+          BIGBOSS_ISSUE_TITLE: BigBoss
+          BIGBOSS_NOTIFY_KIND: issue
+          BIGBOSS_NOTIFY_NUMBER: ${{ inputs.notify_issue_number }}
           BIGBOSS_AGENT_YML: .github/workflows/bigboss/agent.yml
         run: bash .github/workflows/bigboss/run.sh
 
