@@ -302,7 +302,7 @@ async function checkCursorCloudApi(): Promise<SelfCheckItem> {
       clientInfo: { name: "tempybot-selfcheck", version: "0.0.0" },
     });
     if (init.error) {
-      return { name: "cursor.api.models", ok: false, required: true, error: { message: init.error.message } };
+      return { name: "cursor.api.models", ok: false, required: require, error: { message: init.error.message } };
     }
     client.notify("notifications/initialized", {});
 
@@ -311,7 +311,7 @@ async function checkCursorCloudApi(): Promise<SelfCheckItem> {
       arguments: { endpoint: "/v0/models", method: "GET", params: {} },
     });
     if (call.error) {
-      return { name: "cursor.api.models", ok: false, required: true, error: { message: call.error.message } };
+      return { name: "cursor.api.models", ok: false, required: require, error: { message: call.error.message } };
     }
 
     const parsed = parseToolTextJson(call.result) as any;
@@ -320,17 +320,17 @@ async function checkCursorCloudApi(): Promise<SelfCheckItem> {
       return {
         name: "cursor.api.models",
         ok: false,
-        required: true,
+        required: require,
         error: { message: "Cursor API call succeeded but no models were returned." },
       };
     }
 
-    return { name: "cursor.api.models", ok: true, required: true, details: { modelsCount: models.length } };
+    return { name: "cursor.api.models", ok: true, required: require, details: { modelsCount: models.length } };
   } catch (err) {
     return {
       name: "cursor.api.models",
       ok: false,
-      required: true,
+      required: require,
       error: { message: err instanceof Error ? err.message : String(err) },
     };
   } finally {

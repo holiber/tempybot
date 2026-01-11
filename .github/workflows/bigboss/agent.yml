@@ -12,8 +12,15 @@ use_mcp:
   playwright: false
   chrome_devtools: false
 
+# AI provider configuration (at least one required)
+# BigBoss tries OpenAI first (faster for simple Q&A), then falls back to Cursor Cloud.
+openai:
+  # Supported env vars: OPENAI_API_KEY, OPENAI_KEY
+  enabled: true
+  model: "gpt-4o"
+
 cursor_cloud:
-  # Keep disabled by default; enable when CURSOR_CLOUD_API_KEY is configured.
-  enabled: false
+  # Supported env vars: CURSOR_CLOUD_API_KEY, CURSOR_API_KEY, CURSORCLOUDAPIKEY
+  enabled: true
   openapi_yaml: "src/agnet/cloud-agents-openapi.yaml"
 
