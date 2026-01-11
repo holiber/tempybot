@@ -14,7 +14,7 @@ redact_secrets() {
   # Best-effort redaction for logs. Never print secrets verbatim.
   local s="${1:-}"
   local v
-  for v in "${CURSOR_API_KEY:-}" "${CURSOR_CLOUD_API_KEY:-}" "${CURSORCLOUDAPIKEY:-}" "${OPENAI_API_KEY:-}" "${OPENAI_KEY:-}" "${GH_TOKEN:-}"; do
+  for v in "${CURSOR_API_KEY:-}" "${CURSOR_CLOUD_API_KEY:-}" "${CURSORCLOUDAPIKEY:-}" "${OPENAI:-}" "${OPENAI_API_KEY:-}" "${OPENAI_KEY:-}" "${GH_TOKEN:-}"; do
     if [ -n "${v:-}" ]; then
       s="${s//$v/<redacted>}"
     fi
@@ -143,7 +143,7 @@ fi
 echo
 echo "== Secrets / env sanity =="
 echo "Expected env vars  : GH_TOKEN, CURSOR_CLOUD_API_KEY / CURSOR_API_KEY / CURSORCLOUDAPIKEY"
-echo "Optional env vars  : OPENAI_API_KEY / OPENAI_KEY, BIGBOSS_MEMORY_LABEL, BIGBOSS_ISSUE_TITLE, BIGBOSS_RUN_SELF_CHECK"
+echo "Optional env vars  : OPENAI / OPENAI_KEY / OPENAI_API_KEY, BIGBOSS_MEMORY_LABEL, BIGBOSS_ISSUE_TITLE, BIGBOSS_RUN_SELF_CHECK"
 
 # Back-compat: allow multiple Cursor key naming conventions.
 if [ -z "${CURSOR_API_KEY:-}" ] && [ -n "${CURSOR_CLOUD_API_KEY:-}" ]; then
@@ -154,40 +154,45 @@ if [ -z "${CURSOR_API_KEY:-}" ] && [ -n "${CURSORCLOUDAPIKEY:-}" ]; then
 fi
 
 # Back-compat: allow multiple OpenAI key naming conventions.
-# Prefer OPENAI_KEY (shorter name) but also accept OPENAI_API_KEY.
+# Supported: OPENAI, OPENAI_KEY, OPENAI_API_KEY
 echo
 echo "== DEBUG: OpenAI key detection =="
-echo "OPENAI_API_KEY length before fallback: ${#OPENAI_API_KEY}"
-echo "OPENAI_KEY length before fallback: ${#OPENAI_KEY}"
-echo "OPENAI_API_KEY first 4 chars: ${OPENAI_API_KEY:0:4}..."
-echo "OPENAI_KEY first 4 chars: ${OPENAI_KEY:0:4}..."
+echo "OPENAI length: ${#OPENAI}"
+echo "OPENAI_KEY length: ${#OPENAI_KEY}"
+echo "OPENAI_API_KEY length: ${#OPENAI_API_KEY}"
 
+# Normalize to OPENAI_API_KEY (used by the API call)
+if [ -z "${OPENAI_API_KEY:-}" ] && [ -n "${OPENAI:-}" ]; then
+  echo "DEBUG: Copying OPENAI -> OPENAI_API_KEY"
+  export OPENAI_API_KEY="${OPENAI}"
+fi
 if [ -z "${OPENAI_API_KEY:-}" ] && [ -n "${OPENAI_KEY:-}" ]; then
   echo "DEBUG: Copying OPENAI_KEY -> OPENAI_API_KEY"
   export OPENAI_API_KEY="${OPENAI_KEY}"
 fi
-if [ -z "${OPENAI_KEY:-}" ] && [ -n "${OPENAI_API_KEY:-}" ]; then
-  echo "DEBUG: Copying OPENAI_API_KEY -> OPENAI_KEY"
-  export OPENAI_KEY="${OPENAI_API_KEY}"
-fi
 
 echo "OPENAI_API_KEY length after fallback: ${#OPENAI_API_KEY}"
-echo "OPENAI_KEY length after fallback: ${#OPENAI_KEY}"
+if [ -n "${OPENAI_API_KEY:-}" ]; then
+  echo "OPENAI_API_KEY first 4 chars: ${OPENAI_API_KEY:0:4}..."
+else
+  echo "OPENAI_API_KEY: (empty - no OpenAI secret found!)"
+fi
 echo "== END DEBUG: OpenAI key detection =="
 
 missing=()
 if [ -z "${GH_TOKEN:-}" ]; then missing+=("GH_TOKEN (Actions token)"); fi
 # Now we check for either Cursor OR OpenAI - at least one must be present
 if [ -z "${CURSOR_API_KEY:-}" ] && [ -z "${OPENAI_API_KEY:-}" ]; then
-  missing+=("CURSOR_CLOUD_API_KEY or OPENAI_API_KEY (at least one required)")
+  missing+=("CURSOR_CLOUD_API_KEY or OPENAI/OPENAI_KEY/OPENAI_API_KEY (at least one required)")
 fi
 
 echo "GH_TOKEN set         : $([ -n "${GH_TOKEN:-}" ] && echo yes || echo no)"
 echo "CURSOR_API_KEY set   : $([ -n "${CURSOR_API_KEY:-}" ] && echo yes || echo no)"
 echo "CURSOR_CLOUD_API_KEY : $([ -n "${CURSOR_CLOUD_API_KEY:-}" ] && echo yes || echo no)"
 echo "CURSORCLOUDAPIKEY    : $([ -n "${CURSORCLOUDAPIKEY:-}" ] && echo yes || echo no)"
-echo "OPENAI_API_KEY set   : $([ -n "${OPENAI_API_KEY:-}" ] && echo yes || echo no)"
+echo "OPENAI set           : $([ -n "${OPENAI:-}" ] && echo yes || echo no)"
 echo "OPENAI_KEY set       : $([ -n "${OPENAI_KEY:-}" ] && echo yes || echo no)"
+echo "OPENAI_API_KEY set   : $([ -n "${OPENAI_API_KEY:-}" ] && echo yes || echo no)"
 
 detect_notify_target() {
   node - <<'NODE'
@@ -551,7 +556,7 @@ $missing_lines
 
 Notes:
 - This repo's OpenAPI MCP wrapper reads \`CURSOR_API_KEY\`. In Actions we also accept \`CURSOR_CLOUD_API_KEY\` and \`CURSORCLOUDAPIKEY\` and map them automatically.
-- OpenAI API key can be set as \`OPENAI_API_KEY\` or \`OPENAI_KEY\`.
+- OpenAI API key can be set as \`OPENAI\`, \`OPENAI_KEY\`, or \`OPENAI_API_KEY\`.
 - At least one AI API key (Cursor or OpenAI) is required for BigBoss to respond.
 EOF
 )"
@@ -958,7 +963,7 @@ EOF
   echo "== END DEBUG =="
 
   if [ -z "${OPENAI_API_KEY:-}" ] && [ -z "${CURSOR_API_KEY:-}" ]; then
-    post_reply "Missing API keys. Set \`OPENAI_API_KEY\` (or \`OPENAI_KEY\`) or \`CURSOR_CLOUD_API_KEY\` (or \`CURSORCLOUDAPIKEY\`)."
+    post_reply "Missing API keys. Set \`OPENAI\` (or \`OPENAI_KEY\` / \`OPENAI_API_KEY\`) or \`CURSOR_CLOUD_API_KEY\` as a repository secret."
     exit 1
   fi
 

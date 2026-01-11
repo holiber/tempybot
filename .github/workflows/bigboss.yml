@@ -140,7 +140,9 @@ jobs:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY || secrets.CURSOR_CLOUD_API_KEY || secrets.CURSORCLOUDAPIKEY }}
           CURSOR_CLOUD_API_KEY: ${{ secrets.CURSOR_CLOUD_API_KEY || secrets.CURSORCLOUDAPIKEY }}
           CURSORCLOUDAPIKEY: ${{ secrets.CURSORCLOUDAPIKEY }}
-          # OpenAI API - pass both possible secret names, script handles fallback
+          # OpenAI API - pass all possible secret names, script handles fallback
+          # Supported secret names: OPENAI, OPENAI_KEY, OPENAI_API_KEY
+          OPENAI: ${{ secrets.OPENAI }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
           BIGBOSS_RUN_SELF_CHECK: ${{ github.event_name == 'workflow_dispatch' && inputs.run_self_check && '1' || '0' }}

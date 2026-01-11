@@ -83,7 +83,9 @@ jobs:
           # Cursor Cloud API (multiple naming conventions)
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY || secrets.CURSOR_CLOUD_API_KEY || secrets.CURSORCLOUDAPIKEY }}
           CURSOR_CLOUD_API_KEY: ${{ secrets.CURSOR_CLOUD_API_KEY || secrets.CURSORCLOUDAPIKEY }}
-          # OpenAI API - pass both possible secret names, script handles fallback
+          # OpenAI API - pass all possible secret names
+          # Supported secret names: OPENAI, OPENAI_KEY, OPENAI_API_KEY
+          OPENAI: ${{ secrets.OPENAI }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
         run: npm run test:integration
