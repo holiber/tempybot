@@ -1,0 +1,47 @@
+{
+  "name": "@tempybot/stc",
+  "version": "0.0.0",
+  "description": "STC light runtime + type specs",
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/stc/light/index.d.ts",
+      "default": "./dist/stc/light/index.js"
+    },
+    "./light": {
+      "types": "./dist/stc/light/index.d.ts",
+      "default": "./dist/stc/light/index.js"
+    },
+    "./light/channel": {
+      "types": "./dist/stc/light/channel.d.ts",
+      "default": "./dist/stc/light/channel.js"
+    },
+    "./light/chat": {
+      "types": "./dist/stc/light/chat.d.ts",
+      "default": "./dist/stc/light/chat.js"
+    },
+    "./light/collection": {
+      "types": "./dist/stc/light/collection.d.ts",
+      "default": "./dist/stc/light/collection.js"
+    },
+    "./light/transport": {
+      "types": "./dist/stc/light/transport.d.ts",
+      "default": "./dist/stc/light/transport.js"
+    },
+    "./light/workbench": {
+      "types": "./dist/stc/light/workbench.d.ts",
+      "default": "./dist/stc/light/workbench.js"
+    },
+    "./types/light/stc": {
+      "types": "./dist/types/light/stc.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": ["dist", "package.json", "README.md"],
+  "dependencies": {
+    "zod": "^4.3.5"
+  }
+}
+

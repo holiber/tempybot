@@ -15,7 +15,16 @@
  * - richer protocols (grpc, trpc, graphql, mcp, etc.)
  */
 
+import type { STC as ApiClientSTC } from "../api-client.js";
+import type { STC as ChannelSTC } from "./channel.js";
+import type { STC as DiagnosticsSTC } from "../diagnostic.js";
+
 export declare namespace STC {
+  // Cross-spec dependencies referenced by Transport.
+  export import ApiClient = ApiClientSTC.ApiClient;
+  export import Channel = ChannelSTC.Channel;
+  export import Diagnostics = DiagnosticsSTC.Diagnostics;
+
   export namespace Transport {
     /** Transport name identifier (diagnostics / routing). */
     export type Name = string;
