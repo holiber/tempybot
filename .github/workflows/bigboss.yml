@@ -131,8 +131,11 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
-          CURSOR_CLOUD_API_KEY: ${{ secrets.CURSOR_CLOUD_API_KEY }}
+          # Support multiple secret/env naming conventions.
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY || secrets.CURSOR_CLOUD_API_KEY || secrets.CURSORCLOUDAPIKEY }}
+          CURSOR_CLOUD_API_KEY: ${{ secrets.CURSOR_CLOUD_API_KEY || secrets.CURSORCLOUDAPIKEY }}
+          CURSORCLOUDAPIKEY: ${{ secrets.CURSORCLOUDAPIKEY }}
+          OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
           BIGBOSS_MEMORY_LABEL: BIGBOSS
           BIGBOSS_ISSUE_TITLE: BigBoss
           BIGBOSS_NOTIFY_KIND: issue

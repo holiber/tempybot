@@ -123,14 +123,18 @@ echo "== Secrets / env sanity =="
 if [ -z "${CURSOR_API_KEY:-}" ] && [ -n "${CURSOR_CLOUD_API_KEY:-}" ]; then
   export CURSOR_API_KEY="${CURSOR_CLOUD_API_KEY}"
 fi
+if [ -z "${CURSOR_API_KEY:-}" ] && [ -n "${CURSORCLOUDAPIKEY:-}" ]; then
+  export CURSOR_API_KEY="${CURSORCLOUDAPIKEY}"
+fi
 
 missing=()
 if [ -z "${GH_TOKEN:-}" ]; then missing+=("GH_TOKEN (Actions token)"); fi
-if [ -z "${CURSOR_API_KEY:-}" ]; then missing+=("CURSOR_CLOUD_API_KEY (or CURSOR_API_KEY)"); fi
+if [ -z "${CURSOR_API_KEY:-}" ]; then missing+=("CURSOR_CLOUD_API_KEY (or CURSOR_API_KEY / CURSORCLOUDAPIKEY)"); fi
 
 echo "GH_TOKEN set         : $([ -n "${GH_TOKEN:-}" ] && echo yes || echo no)"
 echo "CURSOR_API_KEY set   : $([ -n "${CURSOR_API_KEY:-}" ] && echo yes || echo no)"
 echo "CURSOR_CLOUD_API_KEY : $([ -n "${CURSOR_CLOUD_API_KEY:-}" ] && echo yes || echo no)"
+echo "CURSORCLOUDAPIKEY    : $([ -n "${CURSORCLOUDAPIKEY:-}" ] && echo yes || echo no)"
 
 detect_notify_target() {
   node - <<'NODE'
