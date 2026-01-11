@@ -80,6 +80,8 @@ jobs:
       - name: Integration tests
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          # Prefer CURSOR_CLOUD_API_KEY, but keep back-compat with CURSOR_API_KEY.
+          CURSOR_CLOUD_API_KEY: ${{ secrets.CURSOR_CLOUD_API_KEY }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY || secrets.CURSOR_CLOUD_API_KEY }}
         run: npm run test:integration
 

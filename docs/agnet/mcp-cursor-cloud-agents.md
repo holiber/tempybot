@@ -25,7 +25,9 @@ npm install
 2. Export an API key (create one in Cursor Dashboard):
 
 ```bash
-export CURSOR_API_KEY="your_api_key_here"
+# Preferred name in CI is CURSOR_CLOUD_API_KEY, but the wrapper also accepts
+# CURSOR_API_KEY and CURSORCLOUDAPIKEY for convenience/back-compat.
+export CURSOR_CLOUD_API_KEY="your_api_key_here"
 ```
 
 3. Start the MCP server:
@@ -37,7 +39,8 @@ npm run mcp:cursor-cloud-agents
 This uses `scripts/mcp-cursor-cloud-agents.mjs` which:
 
 - Starts `openapi-mcp-server` over **stdio**
-- Adds an `Authorization: Bearer <CURSOR_API_KEY>` header if `CURSOR_API_KEY` is set
+- Adds an `Authorization: Bearer <...>` header if a Cursor key is set via
+  `CURSOR_API_KEY` / `CURSOR_CLOUD_API_KEY` / `CURSORCLOUDAPIKEY`
 
 ## Use it in Cursor “MCP Studio” / UI
 
@@ -46,7 +49,8 @@ Add a new MCP server that runs from the repo root:
 - **Command**: `node`
 - **Args**: `scripts/mcp-cursor-cloud-agents.mjs`
 - **Env**:
-  - `CURSOR_API_KEY`: your Cursor API key
+  - `CURSOR_CLOUD_API_KEY` (preferred): your Cursor API key
+  - `CURSOR_API_KEY` / `CURSORCLOUDAPIKEY` (also supported)
 
 Once added, the tools should appear for the operations defined in the OpenAPI spec.
 

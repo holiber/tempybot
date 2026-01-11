@@ -4,6 +4,7 @@ import path from "node:path";
 import process from "node:process";
 
 import { executeGh } from "./cerebellum.ts";
+import { getCursorApiKeyFromEnv, readEnv } from "./env.ts";
 import { McpStdioClient, openApiMcpServerCommand } from "./mcp-stdio-client.ts";
 
 export type SelfCheckItem =
@@ -21,11 +22,6 @@ export type SelfCheckReport = {
   ok: boolean;
   checks: SelfCheckItem[];
 };
-
-function readEnv(name: string): string | undefined {
-  const v = process.env[name];
-  return v && v.trim() ? v.trim() : undefined;
-}
 
 function isRequireCursorCli(): boolean {
   return readEnv("AGNET_SELF_CHECK_REQUIRE_CURSOR_CLI") === "1";
@@ -258,7 +254,7 @@ async function checkNodeScriptTool(args: {
 }
 
 async function checkCursorCloudApi(): Promise<SelfCheckItem> {
-  const apiKey = readEnv("CURSOR_API_KEY");
+  const apiKey = getCursorApiKeyFromEnv();
   const require = isRequireCursorApi();
   if (!apiKey) {
     if (!require) {
@@ -267,11 +263,16 @@ async function checkCursorCloudApi(): Promise<SelfCheckItem> {
         ok: false,
         required: false,
         skipped: true,
-        error: { message: "CURSOR_API_KEY is not set." },
+        error: { message: "Cursor API key is not set (CURSOR_API_KEY / CURSOR_CLOUD_API_KEY / CURSORCLOUDAPIKEY)." },
         details: { note: "Not required (set AGNET_SELF_CHECK_REQUIRE_CURSOR_API=1 to require)." },
       };
     }
-    return { name: "cursor.api.models", ok: false, required: true, error: { message: "CURSOR_API_KEY is not set." } };
+    return {
+      name: "cursor.api.models",
+      ok: false,
+      required: true,
+      error: { message: "Cursor API key is not set (CURSOR_API_KEY / CURSOR_CLOUD_API_KEY / CURSORCLOUDAPIKEY)." },
+    };
   }
 
   const specPath = path.join(process.cwd(), "src", "agnet", "cloud-agents-openapi.yaml");
@@ -291,7 +292,7 @@ async function checkCursorCloudApi(): Promise<SelfCheckItem> {
     "--server-version",
     "0.1.0",
     "--headers",
-    `Authorization:Bearer ${apiKey}`,
+    `Authorization: Bearer ${apiKey}`,
   ];
 
   const client = new McpStdioClient(cmd, args);

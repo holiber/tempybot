@@ -13,7 +13,8 @@ use_mcp:
   chrome_devtools: false
 
 cursor_cloud:
-  # Keep disabled by default; enable when CURSOR_CLOUD_API_KEY is configured.
+  # Keep disabled by default; enable when a Cursor key is configured
+  # (CURSOR_CLOUD_API_KEY / CURSOR_API_KEY / CURSORCLOUDAPIKEY).
   enabled: false
   openapi_yaml: "src/agnet/cloud-agents-openapi.yaml"
 
