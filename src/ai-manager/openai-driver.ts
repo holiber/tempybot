@@ -19,6 +19,7 @@ export type OpenAiFunctionTool = {
 export type OpenAiTurnResult = {
   text: string;
   toolCalls: Array<{ name: string; callId: string; arguments: unknown }>;
+  toolOutputs: Array<{ name: string; callId: string; output: unknown }>;
 };
 
 function readEnv(name: string): string | undefined {
@@ -93,6 +94,7 @@ export async function runOpenAiTurn(args: {
   }));
 
   const toolCallsSeen: Array<{ name: string; callId: string; arguments: unknown }> = [];
+  const toolOutputsSeen: Array<{ name: string; callId: string; output: unknown }> = [];
 
   const timeoutMs = Math.max(1_000, args.timeoutMs ?? 30_000);
   const maxToolRounds = Math.max(0, args.maxToolRounds ?? 6);
@@ -123,7 +125,7 @@ export async function runOpenAiTurn(args: {
     const output = Array.isArray((resp as any)?.output) ? (resp as any).output : [];
     const calls = extractFunctionCalls(output);
     if (!calls.length) {
-      return { text: extractOutputText(output), toolCalls: toolCallsSeen };
+      return { text: extractOutputText(output), toolCalls: toolCallsSeen, toolOutputs: toolOutputsSeen };
     }
 
     for (const c of calls) {
@@ -157,6 +159,8 @@ export async function runOpenAiTurn(args: {
       } catch (e) {
         out = { ok: false, error: { message: e instanceof Error ? e.message : String(e) } };
       }
+
+      toolOutputsSeen.push({ name: c.name, callId: c.call_id, output: out });
 
       const outputStr =
         typeof out === "string"
