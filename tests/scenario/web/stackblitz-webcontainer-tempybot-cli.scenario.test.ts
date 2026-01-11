@@ -2,6 +2,9 @@ import { test } from "vitest";
 import { spawnSync } from "node:child_process";
 import { startWebSession, userSleep } from "../test-utils.js";
 
+const STACKBLITZ_ENABLED = process.env.SCENARIO_STACKBLITZ === "1";
+const scenarioTest = STACKBLITZ_ENABLED ? test : test.skip;
+
 function currentGitBranchName(): string | null {
   const r = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" });
   if ((r.status ?? 1) !== 0) return null;
@@ -34,7 +37,7 @@ async function maybeAcceptConsent(page: any): Promise<void> {
   }
 }
 
-test(
+scenarioTest(
   "webcontainers (stackblitz): run tempybot CLI parse and capture output",
   { timeout: 240_000 },
   async () => {
