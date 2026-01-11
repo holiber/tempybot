@@ -7,9 +7,9 @@ use_mcp:
   # This repo already includes an OpenAPI MCP server wrapper for Cursor Cloud Agents.
   # See: scripts/mcp-cursor-cloud-agents.mjs
   openapi: true
-  # Installed + wired in .github/workflows/bigboss/mcp.js
-  playwright: true
-  chrome_devtools: true
+  # Keep BigBoss minimal to reduce CI cold-start time.
+  playwright: false
+  chrome_devtools: false
 
 cursor_cloud:
   # Keep disabled by default; enable when CURSOR_CLOUD_API_KEY is configured.
