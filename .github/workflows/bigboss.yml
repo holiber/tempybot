@@ -148,14 +148,33 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          raw="$(gh pr list --head staging --base main --json number --limit 1 2>/dev/null || echo '[]')"
-          existing="$(python3 -c 'import json,sys; raw=sys.argv[1] if len(sys.argv)>1 else \"[]\";\n\ntry:\n    arr=json.loads(raw)\nexcept Exception:\n    arr=[]\nprint(len(arr) if isinstance(arr,list) else 0)\n' "$raw")"
-          if [ "${existing:-0}" != "0" ]; then
+          repo="${GITHUB_REPOSITORY}"
+          owner="${repo%%/*}"
+          api="https://api.github.com/repos/${repo}"
+
+          existing="$(curl -fsS \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "${api}/pulls?state=open&base=main&head=${owner}:staging&per_page=1" || echo '[]')"
+
+          count="$(python3 -c 'import json,sys; raw=sys.argv[1] if len(sys.argv)>1 else \"[]\";\n\ntry:\n    arr=json.loads(raw)\nexcept Exception:\n    arr=[]\nprint(len(arr) if isinstance(arr,list) else 0)\n' "$existing")"
+
+          if [ "${count:-0}" != "0" ]; then
             exit 0
           fi
-          gh pr create \
-            --head staging \
-            --base main \
-            --title "Fix Bigboss workflow and memory" \
-            --body $'## Summary\n- Brand Actions runs as Bigboss (workflow name + run-name)\n- React with 👀 immediately on summon (pre-bot step)\n- Use a single reserved BigBoss issue (label BIGBOSS) and keep answering even if memory is missing\n\n## Test plan\n- [ ] Comment `@bigboss <prompt>` in the PR and verify 👀 reaction + reply\n'
+
+          body=$'## Summary\n- Brand Actions runs as Bigboss (workflow name + run-name)\n- React with 👀 immediately on summon (pre-bot step)\n- Use a single reserved BigBoss issue (label BIGBOSS) and keep answering even if memory is missing\n\n## Test plan\n- [ ] Comment `@bigboss <prompt>` in the PR and verify 👀 reaction + reply\n'
+
+          payload="$(python3 -c 'import json,sys; title=sys.argv[1]; head=sys.argv[2]; base=sys.argv[3]; body=sys.argv[4]; print(json.dumps({\"title\":title,\"head\":head,\"base\":base,\"body\":body}))' \
+            "Fix Bigboss workflow and memory" \
+            "staging" \
+            "main" \
+            "$body")"
+
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            --data "$payload" \
+            "${api}/pulls" >/dev/null
 
