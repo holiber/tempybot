@@ -139,7 +139,7 @@ jobs:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
           CURSOR_CLOUD_API_KEY: ${{ secrets.CURSOR_CLOUD_API_KEY }}
           BIGBOSS_RUN_SELF_CHECK: ${{ github.event_name == 'workflow_dispatch' && inputs.run_self_check && '1' || '0' }}
-          BIGBOSS_MEMORY_LABEL: BIGBOSS
+          BIGBOSS_MEMORY_LABEL: BOSSS
           BIGBOSS_ISSUE_TITLE: BigBoss
           BIGBOSS_NOTIFY_KIND: issue
           BIGBOSS_NOTIFY_NUMBER: ${{ inputs.notify_issue_number }}

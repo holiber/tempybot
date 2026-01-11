@@ -142,6 +142,8 @@ fi
 
 echo
 echo "== Secrets / env sanity =="
+echo "Expected env vars  : GH_TOKEN, CURSOR_CLOUD_API_KEY (preferred) / CURSOR_API_KEY"
+echo "Optional env vars  : BIGBOSS_MEMORY_LABEL, BIGBOSS_ISSUE_TITLE, BIGBOSS_RUN_SELF_CHECK"
 
 # Back-compat: allow either CURSOR_CLOUD_API_KEY (preferred) or CURSOR_API_KEY (existing in this repo).
 if [ -z "${CURSOR_API_KEY:-}" ] && [ -n "${CURSOR_CLOUD_API_KEY:-}" ]; then
@@ -268,8 +270,9 @@ find_issue_number_by_label_and_title() {
   fi
 
   node - <<'NODE' "$raw" "$title"
-const raw = process.argv[1] ?? "[]";
-const wantTitle = process.argv[2] ?? "BigBoss";
+// When invoked as `node - <script> arg1 arg2`, argv[1] is "-" and args start at argv[2].
+const raw = process.argv[2] ?? "[]";
+const wantTitle = process.argv[3] ?? "BigBoss";
 let arr = [];
 try { arr = JSON.parse(raw); } catch {}
 if (!Array.isArray(arr)) process.exit(0);
@@ -284,7 +287,7 @@ issue_has_label() {
   local label="$2"
   gh api "repos/${GITHUB_REPOSITORY}/issues/${issue_number}" 2>/dev/null | node - <<'NODE' "$label"
 const raw = require("node:fs").readFileSync(0, "utf8");
-const label = process.argv[1] ?? "";
+const label = process.argv[2] ?? "";
 let j = {};
 try { j = JSON.parse(raw); } catch {}
 const labels = Array.isArray(j?.labels) ? j.labels : [];
@@ -374,8 +377,8 @@ normalize_bigboss_reserved_issue() {
     fi
 
     extras="$(node - <<'NODE' "$raw" "$primary"
-const raw = process.argv[1] ?? "[]";
-const primary = String(process.argv[2] ?? "");
+const raw = process.argv[2] ?? "[]";
+const primary = String(process.argv[3] ?? "");
 let arr = [];
 try { arr = JSON.parse(raw); } catch {}
 if (!Array.isArray(arr)) process.exit(0);
@@ -440,7 +443,7 @@ create_bigboss_issue() {
   out="$(gh api -X POST "repos/${GITHUB_REPOSITORY}/issues" -f title="$title" -f body="$body" -f "labels[]=$label" 2>/dev/null || true)"
   node - <<'NODE' "$out"
 try {
-  const j = JSON.parse(process.argv[1] ?? "");
+  const j = JSON.parse(process.argv[2] ?? "");
   if (j?.number) process.stdout.write(String(j.number));
 } catch {}
 NODE
@@ -551,8 +554,8 @@ memory_fetch_tail() {
     return 0
   fi
   node - <<'NODE' "$raw" "$limit"
-const raw = process.argv[1] ?? "[]";
-const limit = Number(process.argv[2] ?? "8");
+const raw = process.argv[2] ?? "[]";
+const limit = Number(process.argv[3] ?? "8");
 let arr: any[] = [];
 try { arr = JSON.parse(raw); } catch {}
 if (!Array.isArray(arr) || !arr.length) process.exit(0);
@@ -589,7 +592,7 @@ gh_search_total_count() {
   fi
   node - <<'NODE' "$out"
 try {
-  const j = JSON.parse(process.argv[1] ?? "{}");
+  const j = JSON.parse(process.argv[2] ?? "{}");
   const n = Number(j?.total_count);
   if (Number.isFinite(n) && n >= 0) process.stdout.write(String(n));
 } catch {}
@@ -601,8 +604,8 @@ cursor_api_create_agent() {
   local repo_url="https://github.com/${GITHUB_REPOSITORY}"
   local payload
   payload="$(node - <<'NODE' "$prompt_text" "$repo_url"
-const promptText = process.argv[1] ?? "";
-const repoUrl = process.argv[2] ?? "";
+const promptText = process.argv[2] ?? "";
+const repoUrl = process.argv[3] ?? "";
 const out = {
   prompt: { text: promptText },
   source: { repository: repoUrl },
@@ -729,7 +732,7 @@ EOF
   # If Cursor key is missing, selfcheck will mark cursor.api.models as skipped; explicitly report it.
   cursor_api_skipped="$(node - <<'NODE' "$selfcheck_out"
 try {
-  const j = JSON.parse(process.argv[1] ?? "{}");
+  const j = JSON.parse(process.argv[2] ?? "{}");
   const checks = Array.isArray(j?.checks) ? j.checks : [];
   const c = checks.find((x) => x?.name === "cursor.api.models");
   if (c && c.ok === false && c.skipped === true) process.stdout.write("1");
