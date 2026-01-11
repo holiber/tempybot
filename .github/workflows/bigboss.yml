@@ -4,6 +4,8 @@ run-name: >-
   Bigboss — ${{ github.event_name }} #${{ github.event.issue.number || github.event.pull_request.number || github.run_number }}
 
 on:
+  push:
+    branches: [staging]
   issue_comment:
     types: [created]
   pull_request_review_comment:
@@ -137,4 +139,38 @@ jobs:
           BIGBOSS_NOTIFY_NUMBER: ${{ inputs.notify_issue_number }}
           BIGBOSS_AGENT_YML: .github/workflows/bigboss/agent.yml
         run: bash .github/workflows/bigboss/run.sh
+
+      - name: Ensure PR staging → main exists
+        if: ${{ github.event_name == 'push' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          existing="$(gh pr list --head staging --base main --json number --limit 1 | node - <<'NODE'
+import fs from "node:fs";
+let raw = "";
+try { raw = fs.readFileSync(0, "utf8"); } catch {}
+let arr = [];
+try { arr = JSON.parse(raw || "[]"); } catch { arr = []; }
+process.stdout.write(String(Array.isArray(arr) ? arr.length : 0));
+NODE
+)"
+          if [ "${existing:-0}" != "0" ]; then
+            exit 0
+          fi
+          gh pr create \
+            --head staging \
+            --base main \
+            --title "Fix Bigboss workflow and memory" \
+            --body "$(cat <<'EOF'
+## Summary
+- Brand Actions runs as Bigboss (workflow name + run-name)
+- React with 👀 immediately on summon (pre-bot step)
+- Use a single reserved BigBoss issue (label BIGBOSS) and keep answering even if memory is missing
+
+## Test plan
+- [ ] Comment `@bigboss <prompt>` in the PR and verify 👀 reaction + reply
+EOF
+)"
 

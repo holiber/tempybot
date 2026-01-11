@@ -89,6 +89,10 @@ should_wake_up() {
   if [ "$event" = "workflow_dispatch" ]; then
     return 0
   fi
+  # Allow a lightweight staging self-test on push to staging.
+  if [ "$event" = "push" ]; then
+    return 0
+  fi
   if echo "${BODY:-}" | grep -Eqi '(^|\s)(/bigboss|@bigboss|@bigbos)\b|/do\b'; then
     return 0
   fi
@@ -102,7 +106,7 @@ else
   exit 0
 fi
 
-if [ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ]; then
+if [ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ] && [ "${GITHUB_EVENT_NAME:-}" != "push" ]; then
   if is_allowed_summoner; then
     echo "Summoner allowed: YES (${SENDER_ASSOC:-unknown})"
   else
@@ -500,7 +504,11 @@ if [ -z "${PROMPT:-}" ] && [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; t
   PROMPT="$(read_dispatch_prompt || true)"
 fi
 
-if [ -z "${PROMPT:-}" ] && [ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ]; then
+if [ -z "${PROMPT:-}" ] && [ "${GITHUB_EVENT_NAME:-}" = "push" ]; then
+  PROMPT="(staging self-test) Bigboss workflow ran on push: ${GITHUB_SHA:-unknown}"
+fi
+
+if [ -z "${PROMPT:-}" ] && [ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ] && [ "${GITHUB_EVENT_NAME:-}" != "push" ]; then
   # Mention without any prompt text; do not spam.
   exit 0
 fi
