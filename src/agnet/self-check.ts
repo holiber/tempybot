@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
@@ -38,8 +39,45 @@ function isRequireCursorApi(): boolean {
   return readEnv("AGNET_SELF_CHECK_REQUIRE_CURSOR_API") === "1";
 }
 
+function isRequirePlaywrightMcpServer(): boolean {
+  return readEnv("AGNET_SELF_CHECK_REQUIRE_PLAYWRIGHT_MCP") === "1";
+}
+
+function isRequireChromeDevtoolsMcpServer(): boolean {
+  return readEnv("AGNET_SELF_CHECK_REQUIRE_CHROME_DEVTOOLS_MCP") === "1";
+}
+
 function shouldFail(item: SelfCheckItem): boolean {
   return item.ok ? false : item.required;
+}
+
+async function statSafe(p: string): Promise<import("node:fs").Stats | null> {
+  try {
+    return await fs.stat(p);
+  } catch {
+    return null;
+  }
+}
+
+async function readSelfCheckAgentConfigUseMcp(): Promise<{ playwright: boolean; chromeDevtools: boolean } | null> {
+  const p = readEnv("AGNET_SELF_CHECK_AGENT_YML");
+  if (!p) return null;
+
+  const abs = path.isAbsolute(p) ? p : path.join(process.cwd(), p);
+  try {
+    const raw = await fs.readFile(abs, "utf8");
+    const yamlMod = await import("yaml");
+    const parse = (yamlMod as any)?.parse as ((s: string) => unknown) | undefined;
+    if (typeof parse !== "function") return null;
+    const doc = parse(raw) as any;
+
+    const useMcp = (doc?.use_mcp ?? doc?.useMcp) as any;
+    const playwright = Boolean(useMcp?.playwright);
+    const chromeDevtools = Boolean(useMcp?.chrome_devtools ?? useMcp?.chromeDevtools);
+    return { playwright, chromeDevtools };
+  } catch {
+    return null;
+  }
 }
 
 function parseToolTextJson(result: unknown): unknown {
@@ -169,6 +207,56 @@ function checkCursorCli(): SelfCheckItem {
   return { name: "cursor.cli", ok: true, required: require, details: { version: (r.stdout ?? "").trim() } };
 }
 
+async function checkNodeScriptTool(args: {
+  name: string;
+  required: boolean;
+  relScriptPath: string;
+  helpArgs?: string[];
+}): Promise<SelfCheckItem> {
+  const absScriptPath = path.join(process.cwd(), args.relScriptPath);
+  const st = await statSafe(absScriptPath);
+  if (!st || !st.isFile()) {
+    const msg = `Missing file: ${args.relScriptPath}`;
+    if (!args.required) {
+      return {
+        name: args.name,
+        ok: false,
+        required: false,
+        skipped: true,
+        error: { message: msg },
+        details: { note: "Not required (enable in agent.yml or set AGNET_SELF_CHECK_REQUIRE_*=1 to require)." },
+      };
+    }
+    return { name: args.name, ok: false, required: true, error: { message: msg } };
+  }
+
+  const r = spawnSync(process.execPath, [absScriptPath, ...(args.helpArgs ?? ["--help"])], {
+    encoding: "utf8",
+    env: { ...process.env, FORCE_COLOR: "0" },
+    maxBuffer: 10 * 1024 * 1024,
+  });
+  if ((r.status ?? 1) !== 0) {
+    const msg =
+      (r.stderr ?? "").trim() ||
+      (r.stdout ?? "").trim() ||
+      (r.error instanceof Error ? r.error.message : "") ||
+      `node ${args.relScriptPath} failed (exit=${r.status ?? 1})`;
+    if (!args.required) {
+      return {
+        name: args.name,
+        ok: false,
+        required: false,
+        skipped: true,
+        error: { message: msg },
+        details: { note: "Not required (enable in agent.yml or set AGNET_SELF_CHECK_REQUIRE_*=1 to require)." },
+      };
+    }
+    return { name: args.name, ok: false, required: true, error: { message: msg } };
+  }
+
+  return { name: args.name, ok: true, required: args.required };
+}
+
 async function checkCursorCloudApi(): Promise<SelfCheckItem> {
   const apiKey = readEnv("CURSOR_API_KEY");
   const require = isRequireCursorApi();
@@ -251,10 +339,26 @@ async function checkCursorCloudApi(): Promise<SelfCheckItem> {
 }
 
 export async function runSelfCheck(): Promise<SelfCheckReport> {
+  const agentCfg = await readSelfCheckAgentConfigUseMcp();
+
   const checks: SelfCheckItem[] = [];
   checks.push(await checkMcpOpenApiSchema());
   checks.push(await checkGitHubViaGh());
   checks.push(checkCursorCli());
+  checks.push(
+    await checkNodeScriptTool({
+      name: "mcp.playwright",
+      required: isRequirePlaywrightMcpServer() || Boolean(agentCfg?.playwright),
+      relScriptPath: "node_modules/@playwright/mcp/cli.js",
+    })
+  );
+  checks.push(
+    await checkNodeScriptTool({
+      name: "mcp.chrome-devtools",
+      required: isRequireChromeDevtoolsMcpServer() || Boolean(agentCfg?.chromeDevtools),
+      relScriptPath: "node_modules/chrome-devtools-mcp/build/src/index.js",
+    })
+  );
   checks.push(await checkCursorCloudApi());
 
   const ok = !checks.some(shouldFail);

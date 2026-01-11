@@ -37,8 +37,10 @@
   },
   "devDependencies": {
     "@ivotoby/openapi-mcp-server": "^1.12.3",
+    "@playwright/mcp": "^0.0.55",
     "@playwright/test": "^1.50.1",
     "@types/node": "^22.10.7",
+    "chrome-devtools-mcp": "^0.12.1",
     "node-pty": "^1.0.0",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"

@@ -15,6 +15,10 @@ echo
 echo "== Config =="
 echo "agent.yml: $AGENT_YML"
 
+# Pass the agent config path to self-check logic (to decide which optional
+# capabilities should be required).
+export AGNET_SELF_CHECK_AGENT_YML="$AGENT_YML"
+
 echo
 echo "== Event payload head =="
 head -c 2000 "${GITHUB_EVENT_PATH}" || true
