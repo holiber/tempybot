@@ -154,8 +154,12 @@ if [ -z "${CURSOR_API_KEY:-}" ] && [ -n "${CURSORCLOUDAPIKEY:-}" ]; then
 fi
 
 # Back-compat: allow multiple OpenAI key naming conventions.
+# Prefer OPENAI_KEY (shorter name) but also accept OPENAI_API_KEY.
 if [ -z "${OPENAI_API_KEY:-}" ] && [ -n "${OPENAI_KEY:-}" ]; then
   export OPENAI_API_KEY="${OPENAI_KEY}"
+fi
+if [ -z "${OPENAI_KEY:-}" ] && [ -n "${OPENAI_API_KEY:-}" ]; then
+  export OPENAI_KEY="${OPENAI_API_KEY}"
 fi
 
 missing=()

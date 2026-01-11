@@ -15,7 +15,7 @@ use_mcp:
 # AI provider configuration (at least one required)
 # BigBoss tries OpenAI first (faster for simple Q&A), then falls back to Cursor Cloud.
 openai:
-  # Supported env vars: OPENAI_API_KEY, OPENAI_KEY
+  # Supported env vars: OPENAI_KEY (preferred), OPENAI_API_KEY
   enabled: true
   model: "gpt-4o"
 

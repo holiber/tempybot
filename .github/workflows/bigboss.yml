@@ -141,8 +141,9 @@ jobs:
           CURSOR_CLOUD_API_KEY: ${{ secrets.CURSOR_CLOUD_API_KEY || secrets.CURSORCLOUDAPIKEY }}
           CURSORCLOUDAPIKEY: ${{ secrets.CURSORCLOUDAPIKEY }}
           # OpenAI API (multiple naming conventions)
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || secrets.OPENAI_KEY }}
-          OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
+          # Note: OPENAI_KEY is the preferred secret name; OPENAI_API_KEY is also supported
+          OPENAI_API_KEY: ${{ secrets.OPENAI_KEY || secrets.OPENAI_API_KEY }}
+          OPENAI_KEY: ${{ secrets.OPENAI_KEY || secrets.OPENAI_API_KEY }}
           BIGBOSS_RUN_SELF_CHECK: ${{ github.event_name == 'workflow_dispatch' && inputs.run_self_check && '1' || '0' }}
           BIGBOSS_MEMORY_LABEL: BOSSS
           BIGBOSS_ISSUE_TITLE: BigBoss
