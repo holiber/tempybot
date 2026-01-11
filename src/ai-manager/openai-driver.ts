@@ -98,12 +98,21 @@ export async function runOpenAiTurn(args: {
   const maxToolRounds = Math.max(0, args.maxToolRounds ?? 6);
 
   for (let round = 0; round <= maxToolRounds; round++) {
+    // If the caller forces a function tool call, only force it on the first round.
+    // After we have tool outputs, force "none" so the model can produce the final answer.
+    const effectiveToolChoice =
+      typeof args.toolChoice === "object"
+        ? toolCallsSeen.length === 0
+          ? args.toolChoice
+          : ("none" as const)
+        : (args.toolChoice ?? "auto");
+
     const resp = await withTimeout(
       client.responses.create({
         model: args.model,
         input: inputItems,
         tools: toolDefs.length ? toolDefs : undefined,
-        tool_choice: args.toolChoice ?? "auto",
+        tool_choice: effectiveToolChoice,
         parallel_tool_calls: false,
         temperature: 0,
       } as any),
