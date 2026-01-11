@@ -135,7 +135,7 @@ jobs:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY || secrets.CURSOR_CLOUD_API_KEY || secrets.CURSORCLOUDAPIKEY }}
           CURSOR_CLOUD_API_KEY: ${{ secrets.CURSOR_CLOUD_API_KEY || secrets.CURSORCLOUDAPIKEY }}
           CURSORCLOUDAPIKEY: ${{ secrets.CURSORCLOUDAPIKEY }}
-          OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
+          OPENAI_KEY: ${{ secrets.OPENAI_KEY || secrets.OPENAI_API_KEY || secrets.OPENAI }}
           BIGBOSS_MEMORY_LABEL: BIGBOSS
           BIGBOSS_ISSUE_TITLE: BigBoss
           BIGBOSS_NOTIFY_KIND: issue

@@ -311,6 +311,16 @@ async function checkCursorCloudApi(): Promise<SelfCheckItem> {
       clientInfo: { name: "tempybot-selfcheck", version: "0.0.0" },
     });
     if (init.error) {
+      if (!require) {
+        return {
+          name: "cursor.api.models",
+          ok: false,
+          required: false,
+          skipped: true,
+          error: { message: init.error.message },
+          details: { note: "Not required; skipping failure." },
+        };
+      }
       return { name: "cursor.api.models", ok: false, required: true, error: { message: init.error.message } };
     }
     client.notify("notifications/initialized", {});
@@ -320,12 +330,32 @@ async function checkCursorCloudApi(): Promise<SelfCheckItem> {
       arguments: { endpoint: "/v0/models", method: "GET", params: {} },
     });
     if (call.error) {
+      if (!require) {
+        return {
+          name: "cursor.api.models",
+          ok: false,
+          required: false,
+          skipped: true,
+          error: { message: call.error.message },
+          details: { note: "Not required; skipping failure." },
+        };
+      }
       return { name: "cursor.api.models", ok: false, required: true, error: { message: call.error.message } };
     }
 
     const parsed = parseToolTextJson(call.result) as any;
     const models = Array.isArray(parsed?.models) ? parsed.models : null;
     if (!models || !models.length) {
+      if (!require) {
+        return {
+          name: "cursor.api.models",
+          ok: false,
+          required: false,
+          skipped: true,
+          error: { message: "Cursor API call succeeded but no models were returned." },
+          details: { note: "Not required; skipping empty result." },
+        };
+      }
       return {
         name: "cursor.api.models",
         ok: false,
@@ -334,8 +364,18 @@ async function checkCursorCloudApi(): Promise<SelfCheckItem> {
       };
     }
 
-    return { name: "cursor.api.models", ok: true, required: true, details: { modelsCount: models.length } };
+    return { name: "cursor.api.models", ok: true, required: require, details: { modelsCount: models.length } };
   } catch (err) {
+    if (!require) {
+      return {
+        name: "cursor.api.models",
+        ok: false,
+        required: false,
+        skipped: true,
+        error: { message: err instanceof Error ? err.message : String(err) },
+        details: { note: "Not required; skipping failure." },
+      };
+    }
     return {
       name: "cursor.api.models",
       ok: false,
