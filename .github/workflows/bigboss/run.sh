@@ -601,16 +601,18 @@ NODE
 
 cursor_api_create_agent() {
   local prompt_text="$1"
-  local repo_url="https://github.com/${GITHUB_REPOSITORY}"
+  local repo_url="${2:-}"
   local payload
   payload="$(node - <<'NODE' "$prompt_text" "$repo_url"
 const promptText = process.argv[2] ?? "";
 const repoUrl = process.argv[3] ?? "";
 const out = {
   prompt: { text: promptText },
-  source: { repository: repoUrl },
   target: { autoCreatePr: false },
 };
+if (repoUrl && repoUrl.trim()) {
+  out.source = { repository: repoUrl.trim() };
+}
 process.stdout.write(JSON.stringify(out));
 NODE
 )"
@@ -624,6 +626,7 @@ cursor_api_get_conversation() {
 
 CURSOR_LAST_HTTP_CODE=""
 CURSOR_LAST_CURL_EXIT=0
+CURSOR_LAST_BODY_REDACTED_TRUNC=""
 
 cursor_api_request() {
   local method="$1"
@@ -667,6 +670,7 @@ cursor_api_request() {
   local redacted
   redacted="$(redact_secrets "$body")"
   redacted="$(printf "%s" "$redacted" | head -c 4000)"
+  CURSOR_LAST_BODY_REDACTED_TRUNC="$redacted"
 
   echo "ERROR: Cursor API request failed: ${method} ${url}" >&2
   echo "  curl_exit : ${CURSOR_LAST_CURL_EXIT:-unknown}" >&2
@@ -809,17 +813,22 @@ EOF
     exit 1
   fi
 
-  if ! created_json="$(cursor_api_create_agent "$full_prompt")"; then
+  repo_url="https://github.com/${GITHUB_REPOSITORY}"
+  if ! created_json="$(cursor_api_create_agent "$full_prompt" "$repo_url")"; then
+    # Fallback: repo access can be misconfigured for the key. Retry without repository context.
+    if ! created_json="$(cursor_api_create_agent "$full_prompt" "")"; then
     post_reply "$(cat <<EOF
 Failed to create Cursor Cloud Agent.
 
 - Cursor API HTTP: ${CURSOR_LAST_HTTP_CODE:-unknown}
 - curl exit       : ${CURSOR_LAST_CURL_EXIT:-unknown}
 
-(See workflow logs for the API error response.)
+API error (truncated):
+${CURSOR_LAST_BODY_REDACTED_TRUNC:-"(empty)"}
 EOF
 )"
     exit 1
+  fi
   fi
 
   agent_meta="$(printf "%s" "$created_json" | cursor_extract_agent_meta)"
