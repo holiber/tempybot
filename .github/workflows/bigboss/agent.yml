@@ -1,0 +1,18 @@
+agent_name: bigboss
+schedule_cron: "*/30 * * * *"
+
+rules_glob: ".github/workflows/bigboss/rules/*.md"
+
+use_mcp:
+  # This repo already includes an OpenAPI MCP server wrapper for Cursor Cloud Agents.
+  # See: scripts/mcp-cursor-cloud-agents.mjs
+  openapi: true
+  # Placeholders for future expansion (not wired in this repo yet).
+  playwright: false
+  chrome_devtools: false
+
+cursor_cloud:
+  # Keep disabled by default; enable when CURSOR_CLOUD_API_KEY is configured.
+  enabled: false
+  openapi_yaml: "src/agnet/cloud-agents-openapi.yaml"
+
