@@ -149,16 +149,7 @@ jobs:
         run: |
           set -euo pipefail
           raw="$(gh pr list --head staging --base main --json number --limit 1 2>/dev/null || echo '[]')"
-          existing="$(python3 - <<'PY' "$raw"
-import json, sys
-raw = sys.argv[1] if len(sys.argv) > 1 else "[]"
-try:
-    arr = json.loads(raw)
-except Exception:
-    arr = []
-print(len(arr) if isinstance(arr, list) else 0)
-PY
-)"
+          existing="$(python3 -c 'import json,sys; raw=sys.argv[1] if len(sys.argv)>1 else \"[]\";\n\ntry:\n    arr=json.loads(raw)\nexcept Exception:\n    arr=[]\nprint(len(arr) if isinstance(arr,list) else 0)\n' "$raw")"
           if [ "${existing:-0}" != "0" ]; then
             exit 0
           fi
@@ -166,14 +157,5 @@ PY
             --head staging \
             --base main \
             --title "Fix Bigboss workflow and memory" \
-            --body "$(cat <<'EOF'
-## Summary
-- Brand Actions runs as Bigboss (workflow name + run-name)
-- React with 👀 immediately on summon (pre-bot step)
-- Use a single reserved BigBoss issue (label BIGBOSS) and keep answering even if memory is missing
-
-## Test plan
-- [ ] Comment `@bigboss <prompt>` in the PR and verify 👀 reaction + reply
-EOF
-)"
+            --body $'## Summary\n- Brand Actions runs as Bigboss (workflow name + run-name)\n- React with 👀 immediately on summon (pre-bot step)\n- Use a single reserved BigBoss issue (label BIGBOSS) and keep answering even if memory is missing\n\n## Test plan\n- [ ] Comment `@bigboss <prompt>` in the PR and verify 👀 reaction + reply\n'
 
