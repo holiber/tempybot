@@ -155,12 +155,25 @@ fi
 
 # Back-compat: allow multiple OpenAI key naming conventions.
 # Prefer OPENAI_KEY (shorter name) but also accept OPENAI_API_KEY.
+echo
+echo "== DEBUG: OpenAI key detection =="
+echo "OPENAI_API_KEY length before fallback: ${#OPENAI_API_KEY}"
+echo "OPENAI_KEY length before fallback: ${#OPENAI_KEY}"
+echo "OPENAI_API_KEY first 4 chars: ${OPENAI_API_KEY:0:4}..."
+echo "OPENAI_KEY first 4 chars: ${OPENAI_KEY:0:4}..."
+
 if [ -z "${OPENAI_API_KEY:-}" ] && [ -n "${OPENAI_KEY:-}" ]; then
+  echo "DEBUG: Copying OPENAI_KEY -> OPENAI_API_KEY"
   export OPENAI_API_KEY="${OPENAI_KEY}"
 fi
 if [ -z "${OPENAI_KEY:-}" ] && [ -n "${OPENAI_API_KEY:-}" ]; then
+  echo "DEBUG: Copying OPENAI_API_KEY -> OPENAI_KEY"
   export OPENAI_KEY="${OPENAI_API_KEY}"
 fi
+
+echo "OPENAI_API_KEY length after fallback: ${#OPENAI_API_KEY}"
+echo "OPENAI_KEY length after fallback: ${#OPENAI_KEY}"
+echo "== END DEBUG: OpenAI key detection =="
 
 missing=()
 if [ -z "${GH_TOKEN:-}" ]; then missing+=("GH_TOKEN (Actions token)"); fi
@@ -764,6 +777,10 @@ openai_api_request() {
   local url="$2"
   local data="${3:-}"
 
+  echo "DEBUG openai_api_request: method=$method url=$url" >&2
+  echo "DEBUG openai_api_request: OPENAI_API_KEY length=${#OPENAI_API_KEY}" >&2
+  echo "DEBUG openai_api_request: OPENAI_API_KEY first 8 chars: ${OPENAI_API_KEY:0:8}..." >&2
+
   local tmp_body tmp_headers
   tmp_body="$(mktemp)"
   tmp_headers="$(mktemp)"
@@ -781,10 +798,12 @@ openai_api_request() {
     curl_args+=(--data "$data")
   fi
 
+  echo "DEBUG openai_api_request: About to call curl..." >&2
   set +e
   curl "${curl_args[@]}"
   OPENAI_LAST_CURL_EXIT=$?
   set -e
+  echo "DEBUG openai_api_request: curl exit code=$OPENAI_LAST_CURL_EXIT" >&2
 
   OPENAI_LAST_HTTP_CODE="$(awk 'BEGIN{code=""} /^HTTP\//{code=$2} END{print code}' "$tmp_headers" 2>/dev/null || true)"
   local body
@@ -930,6 +949,14 @@ EOF
   post_reply "Acknowledged — thinking…"
 
   # Check we have at least one API key
+  echo
+  echo "== DEBUG: API key check before calling APIs =="
+  echo "OPENAI_API_KEY is set: $([ -n "${OPENAI_API_KEY:-}" ] && echo 'YES' || echo 'NO')"
+  echo "OPENAI_API_KEY length: ${#OPENAI_API_KEY}"
+  echo "CURSOR_API_KEY is set: $([ -n "${CURSOR_API_KEY:-}" ] && echo 'YES' || echo 'NO')"
+  echo "CURSOR_API_KEY length: ${#CURSOR_API_KEY}"
+  echo "== END DEBUG =="
+
   if [ -z "${OPENAI_API_KEY:-}" ] && [ -z "${CURSOR_API_KEY:-}" ]; then
     post_reply "Missing API keys. Set \`OPENAI_API_KEY\` (or \`OPENAI_KEY\`) or \`CURSOR_CLOUD_API_KEY\` (or \`CURSORCLOUDAPIKEY\`)."
     exit 1
@@ -939,10 +966,18 @@ EOF
   api_used=""
 
   # Strategy: Try OpenAI first (faster for simple Q&A), fall back to Cursor Cloud for complex tasks
+  echo
+  echo "== DEBUG: Deciding which API to try =="
   if [ -n "${OPENAI_API_KEY:-}" ]; then
+    echo "Will try OpenAI (key is set, length=${#OPENAI_API_KEY})"
     echo "Trying OpenAI Chat Completions API..."
+    echo "DEBUG: About to call openai_chat_completions..."
     if openai_response="$(openai_chat_completions "$full_prompt")"; then
+      echo "DEBUG: openai_chat_completions returned success"
+      echo "DEBUG: Response length: ${#openai_response}"
+      echo "DEBUG: Response first 200 chars: ${openai_response:0:200}"
       reply_text="$(printf "%s" "$openai_response" | openai_extract_response)"
+      echo "DEBUG: Extracted reply_text length: ${#reply_text}"
       if [ -n "${reply_text:-}" ]; then
         api_used="openai"
         echo "OpenAI responded successfully."
@@ -950,8 +985,12 @@ EOF
         echo "WARN: OpenAI returned empty response, will try Cursor Cloud..." >&2
       fi
     else
-      echo "WARN: OpenAI API call failed, will try Cursor Cloud if available..." >&2
+      echo "WARN: OpenAI API call failed (exit code: $?), will try Cursor Cloud if available..." >&2
+      echo "DEBUG: OPENAI_LAST_HTTP_CODE=${OPENAI_LAST_HTTP_CODE:-unset}"
+      echo "DEBUG: OPENAI_LAST_CURL_EXIT=${OPENAI_LAST_CURL_EXIT:-unset}"
     fi
+  else
+    echo "DEBUG: Skipping OpenAI (OPENAI_API_KEY is empty)"
   fi
 
   # Fall back to Cursor Cloud Agents if OpenAI didn't work or isn't available
@@ -996,6 +1035,17 @@ EOF
 
   # Report if all APIs failed
   if [ -z "${reply_text:-}" ]; then
+    echo
+    echo "== DEBUG: All APIs failed, generating error report =="
+    echo "DEBUG: reply_text is empty"
+    echo "DEBUG: OPENAI_API_KEY set: $([ -n "${OPENAI_API_KEY:-}" ] && echo 'YES (len='${#OPENAI_API_KEY}')' || echo 'NO')"
+    echo "DEBUG: CURSOR_API_KEY set: $([ -n "${CURSOR_API_KEY:-}" ] && echo 'YES (len='${#CURSOR_API_KEY}')' || echo 'NO')"
+    echo "DEBUG: OPENAI_LAST_HTTP_CODE: ${OPENAI_LAST_HTTP_CODE:-unset}"
+    echo "DEBUG: OPENAI_LAST_CURL_EXIT: ${OPENAI_LAST_CURL_EXIT:-unset}"
+    echo "DEBUG: CURSOR_LAST_HTTP_CODE: ${CURSOR_LAST_HTTP_CODE:-unset}"
+    echo "DEBUG: CURSOR_LAST_CURL_EXIT: ${CURSOR_LAST_CURL_EXIT:-unset}"
+    echo "== END DEBUG =="
+    
     post_reply "$(cat <<EOF
 Failed to get a response from any AI API.
 
