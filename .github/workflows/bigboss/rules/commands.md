@@ -7,8 +7,18 @@ This repo enables the BigBoss workflow to wake up only when explicitly asked.
 The workflow should run when a comment contains any of:
 
 - `@bigboss`
+- `@bigbos` (common typo)
 - `/bigboss`
 - `/do`
+
+## Arbitrary messages
+
+Anything after the mention is treated as the prompt.
+
+Examples:
+
+- `@bigboss hello!`
+- `@bigboss please summarize the last 3 comments in this PR`
 
 ## Safety
 
