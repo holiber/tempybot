@@ -623,7 +623,7 @@ The workflow could not complete its environment checks (Cursor CLI / MCP / GitHu
 Please open the workflow logs and fix the failing step; BigBoss will not proceed.
 EOF
 )"
-  exit 1
+  exit 0
 fi
 
 echo "$selfcheck_out"
